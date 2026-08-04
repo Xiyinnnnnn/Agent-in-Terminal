@@ -146,7 +146,7 @@ def llm(messages, with_tools=True, stream=True):
         if not stream:
             return json.loads(resp.read().decode("utf-8"))
         # 流式 SSE：逐行解析，content 边收边打印，tool_calls 按 index 分片拼接
-        content, tool_calls, finish, usage = "", {}, None, None
+        content, tool_calls, finish, usage, thinking = "", {}, None, None, False
         for raw in resp:
             line = raw.decode("utf-8", "ignore").strip()
             if not line.startswith("data:"):
@@ -163,7 +163,13 @@ def llm(messages, with_tools=True, stream=True):
             if chunk.get("usage"):
                 usage = chunk["usage"]
             delta = choice.get("delta") or {}
+            # DeepSeek V4 thinking 模式：思考内容走 reasoning_content，实时展示
+            if delta.get("reasoning_content"):
+                thinking = True
+                print(delta["reasoning_content"], end="", flush=True)
             if delta.get("content"):
+                if thinking and not content:
+                    print()
                 content += delta["content"]
                 print(delta["content"], end="", flush=True)
             for tc in delta.get("tool_calls") or []:
