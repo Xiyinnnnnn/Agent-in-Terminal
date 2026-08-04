@@ -24,7 +24,6 @@ curl -fsSL https://raw.githubusercontent.com/Xiyinnnnnn/Agent-in-Terminal/main/i
 ```
 
 > 脚本内部自动双源回退：优先走 jsDelivr CDN，失败自动切 GitHub raw，无需手动选择。
-> 注意：jsDelivr 是 CDN，代码更新后约 2~5 分钟生效，刚 push 完请稍等片刻再安装。
 
 首次运行输入 DeepSeek API Key：
 
