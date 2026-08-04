@@ -132,15 +132,54 @@ def save_api_key(k):
 
 API_KEY = load_api_key()
 
-def llm(messages, with_tools=True):
+def llm(messages, with_tools=True, stream=True):
     body = {"model": MODEL, "messages": messages, "max_tokens": MAX_OUT}
     if with_tools:
         body["tools"], body["tool_choice"] = TOOLS, "auto"
+    if stream:
+        body["stream"] = True
+        body["stream_options"] = {"include_usage": True}
     req = urllib.request.Request(API_URL, data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + API_KEY})
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
+        resp = urllib.request.urlopen(req, timeout=600)
+        if not stream:
             return json.loads(resp.read().decode("utf-8"))
+        # 流式 SSE：逐行解析，content 边收边打印，tool_calls 按 index 分片拼接
+        content, tool_calls, finish, usage = "", {}, None, None
+        for raw in resp:
+            line = raw.decode("utf-8", "ignore").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                chunk = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            choice = (chunk.get("choices") or [{}])[0]
+            finish = choice.get("finish_reason")
+            if chunk.get("usage"):
+                usage = chunk["usage"]
+            delta = choice.get("delta") or {}
+            if delta.get("content"):
+                content += delta["content"]
+                print(delta["content"], end="", flush=True)
+            for tc in delta.get("tool_calls") or []:
+                idx = tc.get("index", 0)
+                obj = tool_calls.setdefault(idx, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                if tc.get("id"):
+                    obj["id"] = tc["id"]
+                fn = tc.get("function") or {}
+                if fn.get("name"):
+                    obj["function"]["name"] = fn["name"]
+                if fn.get("arguments"):
+                    obj["function"]["arguments"] += fn["arguments"]
+        message = {"role": "assistant", "content": content or None}
+        if tool_calls:
+            message["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]
+        return {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
     except urllib.error.HTTPError as e:
         print(f"\n[API错误 {e.code}] {e.read().decode('utf-8','ignore')[:300]}")
     except Exception as e:
@@ -153,7 +192,7 @@ def compress(hist, summary=None):
         msgs.append({"role": "user", "content": summary})
     msgs += hist
     msgs.append({"role": "user", "content": "[总结所有]"})
-    resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False)
+    resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False, stream=False)
     if resp and resp.get("choices"):
         return "历史背景：" + resp["choices"][0]["message"]["content"]
     return summary or "历史背景：（压缩失败）"
@@ -262,7 +301,7 @@ def main():
                 result = TOOL_IMPL["run_terminal"](caught)
                 mem_hist.append({"role": "tool", "tool_call_id": cid, "content": str(result)})
                 continue
-            print("\n" + content)
+            if content: print()
             mem_hist.append({"role": "assistant", "content": content})
             break
 
