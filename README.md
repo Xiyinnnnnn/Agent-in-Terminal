@@ -1,7 +1,5 @@
 # AGENT IN TERMINAL
 
-> give it a need, the terminal handles it.
-> 给需求，终端自己搞定。
 
 ![license](https://img.shields.io/badge/license-MIT-1e90ff?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square)
@@ -10,8 +8,7 @@
 ![platform](https://img.shields.io/badge/platform-linux-f59e0b?style=flat-square)
 ![size](https://img.shields.io/badge/size-11.4KB-d1d5db?style=flat-square)
 
-超轻量终端内 AI Agent。单文件、零依赖、自然语言驱动 shell —— 说人话，它拆解任务、执行命令、交付结果。
-
+超轻量终端内 AI Agent
 ## QUICK START
 
 全球 CDN 一键安装（国内直连，无需代理）：
@@ -111,8 +108,6 @@ curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/term_ag
 ```
 
 > 安全：重跑安装命令不会覆盖 `~/.config/term_agent/`（API Key、记忆），放心更新。
-> 注意：jsDelivr 是 CDN，推送后约 2~5 分钟生效；刚 push 完想立即验证请用 GitHub raw 直连地址。
-
 ## LICENSE
 
 MIT
