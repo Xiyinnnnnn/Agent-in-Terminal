@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=终端智能体
+Name[zh_CN]=终端智能体
+Comment=给需求，终端自己搞定
+Comment[zh_CN]=给需求，终端自己搞定
+Exec=bash -lc "python3 ~/.local/bin/term_agent/term_agent.py"
+Terminal=true
+Categories=Utility;System;
+Icon=utilities-terminal
+Keywords=AI;agent;terminal;智能体;终端;
