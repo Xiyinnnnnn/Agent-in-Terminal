@@ -17,21 +17,20 @@ SYSTEM = """[ROLE] Terminal Agent | [LANG] zh-CN
   必须时→明确告知命令+影响→请求授权→同意后 dangerous=true 执行
 
 [BOOT] 新对话(新终端=新对话)开始，不跳过：
-  ① cat 记忆 → 回记忆复用
+  ① ls ~/.config/term_agent/memory/*.md 按文件名摘要选相关 → cat 精读复用
   ② 明确任务目标与执行计划
   ③ 进入 [THINK]
 
 [MEMORY_LOOP] 前查后存，漏→不交付（记忆=自产md文件）：
-  前·· cat ~/.config/term_agent/memory/*.md → 命中复用 | 无→标"无历史"
-  后·· echo 总结 >> ~/.config/term_agent/memory/YYYYMMDD.md
-  格式：需求+做了什么+关键命令+结果+教训
+  前·· 需要历史→ls ~/.config/term_agent/memory/*.md → 按文件名摘要识别相关记忆 → cat 精读 → 命中复用 | 无→标"无历史"
+  后·· 有价值结论→写记忆文件 ~/.config/term_agent/memory/摘要名.md
 
-[THINK] 思考强度MAX，P1-P5全执行（<think>内，绝不进<answer>）：
+[THINK] 推理协议 P1-P5全执行（<think>内，绝不进<answer>）：
   P1 拆解：核心需求+隐含需求 → 明确目标
-  P2 回记忆：cat 记忆 → 命中复用+标源 | 无→命令探查→不编造
+  P2 回记忆：ls 记忆目录/*.md 按文件名摘要选相关 → cat 精读 → 命中复用+标源 | 无→命令探查→不编造
   P3 规划：步骤表(步骤→命令→预期→验证)
   P4 执行：逐步 run_terminal，失败→读报错→修正重试
-  P5 存忆：完成→echo 总结 >> 记忆文件
+  P5 存忆：完成→写 记忆目录/摘要名.md
 
 [SUMMARY] 收到"[总结所有]"→ 不调工具，总结全部历史，输出纯摘要正文
   正常对话中若见"历史背景：..."user消息 = 压缩后的旧历史，作为背景直接复用
@@ -41,10 +40,10 @@ SYSTEM = """[ROLE] Terminal Agent | [LANG] zh-CN
 用户: {需求}
 <think>
 P1 拆解: {目标}
-P2 回记忆: cat 记忆 → {命中|无历史}
+P2 回记忆: ls 记忆目录/*.md 按文件名摘要选相关 → {命中|无历史}
 P3 规划: {步骤→命令→验证}
 P4 执行: run_terminal {命令} → {结果}
-P5 存忆: echo 总结 >> 记忆文件
+P5 存忆: 写 记忆目录/摘要名.md
 </think>
 <answer>{结果总结}</answer>
 </EXAMPLE>
@@ -133,7 +132,7 @@ def save_api_key(k):
 API_KEY = load_api_key()
 
 def llm(messages, with_tools=True, stream=True):
-    body = {"model": MODEL, "messages": messages, "max_tokens": MAX_OUT}
+    body = {"model": MODEL, "messages": messages, "max_tokens": MAX_OUT, "reasoning_effort": "max", "thinking": {"type": "enabled"}}
     if with_tools:
         body["tools"], body["tool_choice"] = TOOLS, "auto"
     if stream:
@@ -146,7 +145,7 @@ def llm(messages, with_tools=True, stream=True):
         if not stream:
             return json.loads(resp.read().decode("utf-8"))
         # 流式 SSE：逐行解析，content 边收边打印，tool_calls 按 index 分片拼接
-        content, tool_calls, finish, usage, thinking = "", {}, None, None, False
+        content, tool_calls, finish, usage, thinking, reasoning = "", {}, None, None, False, ""
         for raw in resp:
             line = raw.decode("utf-8", "ignore").strip()
             if not line.startswith("data:"):
@@ -166,6 +165,7 @@ def llm(messages, with_tools=True, stream=True):
             # DeepSeek V4 thinking 模式：思考内容走 reasoning_content，实时展示
             if delta.get("reasoning_content"):
                 thinking = True
+                reasoning += delta["reasoning_content"]
                 print(delta["reasoning_content"], end="", flush=True)
             if delta.get("content"):
                 if thinking and not content:
@@ -183,6 +183,8 @@ def llm(messages, with_tools=True, stream=True):
                 if fn.get("arguments"):
                     obj["function"]["arguments"] += fn["arguments"]
         message = {"role": "assistant", "content": content or None}
+        if reasoning:
+            message["reasoning_content"] = reasoning
         if tool_calls:
             message["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]
         return {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
