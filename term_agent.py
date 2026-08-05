@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import json, os, re, subprocess, sys, urllib.request, base64, hashlib
 
 SYSTEM = """[ROLE] Terminal Agent | [LANG] zh-CN
@@ -73,7 +72,7 @@ os.makedirs(MEMORY_DIR, exist_ok=True)
 TOOL_ALIASES = ["run_terminal", "terminal", "shell", "bash", "exec", "cmd", "run", "终端", "执行", "运行", "命令"]
 _ALIAS_RE = "|".join(TOOL_ALIASES)
 
-AUTH_TIMEOUT = 30   
+AUTH_TIMEOUT = 30
 DANGER_BL = [
     "rm", "sudo rm",
     "dd", "mkfs", "format", "wipe", "wipefs", "shred", "blkdiscard",
@@ -84,10 +83,9 @@ DANGER_BL = [
     ":(){", ":(){:|:&};:",
 ]
 
-PIPE_PATTERNS = []  
+PIPE_PATTERNS = []
 
 def _first_hit(seg):
-    """子命令首词命中单词黑名单（支持 mkfs.ext4 点分、:(){ 冒号变体）"""
     w = seg.split()[0] if seg.split() else ""
     for b in DANGER_BL:
         if " " not in b and (w == b or w.startswith(b + ".") or w.startswith(b + ":")):
@@ -95,11 +93,6 @@ def _first_hit(seg):
     return None
 
 def match_danger(cmd):
-    """程序层匹配操作：命中黑名单返回命中项，未命中返回 None。
-    三层匹配：
-      ① 子命令首词（&& / ; / | 分段，如 'touch x && rm y' 中 rm 也能命中）
-      ② 多词黑名单项整命令包含（sudo rm / chmod -R 777...）
-      ③ PIPE_PATTERNS 正则（当前为空，需要拦截远程代码执行类时填入）"""
     c = cmd.strip()
     if not c:
         return None
@@ -109,7 +102,7 @@ def match_danger(cmd):
             return hit
     padded = " " + c + " "
     for b in DANGER_BL:
-        if " " in b and ((" " + b in padded) or (b.replace(" ", "") in c)):  # 前缀匹配: 兼容 "> /dev/sda" 与 ">/dev/sda"
+        if " " in b and ((" " + b in padded) or (b.replace(" ", "") in c)):
             return b
     for pat, desc in PIPE_PATTERNS:
         if re.search(pat, c, re.I):
@@ -117,7 +110,6 @@ def match_danger(cmd):
     return None
 
 def input_yn(prompt, timeout):
-    """带超时的 Y/N 输入。超时返回 None；非交互终端退化为普通 input"""
     if timeout > 0 and sys.stdin.isatty():
         import select, termios, tty
         print(prompt, end="", flush=True)
@@ -140,7 +132,6 @@ def input_yn(prompt, timeout):
     return input(prompt).strip()
 
 def confirm_block(cmd, hit):
-    """程序层 push 确认块：打印警告 + 等待 Y/N"""
     print("──────────────────────────────────")
     print("⚠ 危险命令，需要键盘授权：")
     print(f"   命中黑名单: {hit}")
@@ -237,7 +228,6 @@ def llm(messages, with_tools=True, stream=True):
         resp = urllib.request.urlopen(req, timeout=600)
         if not stream:
             return json.loads(resp.read().decode("utf-8"))
-        # 流式 SSE：逐行解析，content 边收边打印，tool_calls 按 index 分片拼接
         content, tool_calls, finish, usage, thinking, reasoning = "", {}, None, None, False, ""
         for raw in resp:
             line = raw.decode("utf-8", "ignore").strip()
@@ -255,7 +245,6 @@ def llm(messages, with_tools=True, stream=True):
             if chunk.get("usage"):
                 usage = chunk["usage"]
             delta = choice.get("delta") or {}
-            # DeepSeek V4 thinking 模式：思考内容走 reasoning_content，实时展示
             if delta.get("reasoning_content"):
                 thinking = True
                 reasoning += delta["reasoning_content"]
