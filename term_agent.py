@@ -109,7 +109,7 @@ def match_danger(cmd):
             return hit
     padded = " " + c + " "
     for b in DANGER_BL:
-        if " " in b and (" " + b + " " in padded):
+        if " " in b and ((" " + b in padded) or (b.replace(" ", "") in c)):  # 前缀匹配: 兼容 "> /dev/sda" 与 ">/dev/sda"
             return b
     for pat, desc in PIPE_PATTERNS:
         if re.search(pat, c, re.I):
