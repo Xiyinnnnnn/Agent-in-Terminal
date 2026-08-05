@@ -47,7 +47,7 @@ flowchart TD
     A["welcome()<br/>first-run key setup + encrypt"] --> B["main()<br/>loop: llm <-> tool_calls<br/>MAX_ROUNDS=30 soft cap"]
     B --> C["llm()<br/>deepseek-v4-flash<br/>64K cap"]
     B --> D["compress()<br/>900K summary chain"]
-    B --> E["run_terminal()<br/>the only tool: exec shell cmds"]
+    B --> E["run_terminal()<br/>the only tool: exec shell cmds<br/>+ safety gate"]
     C --> F["build_ctx()<br/>mem_hist"]
     D --> F
     E --> F
@@ -61,8 +61,44 @@ flowchart TD
 | CORE | `main()` | 主循环：LLM 对话、工具调用解析、结果回填 |
 | LLM | `llm()` | DeepSeek 接口，流式 SSE，`with_tools` 切换压缩/推理模式 |
 | MEM | `compress()` / `build_context()` | 900K 阈值压缩，摘要链跨会话延续 |
-| TOOL | `run_terminal()` | 唯一工具：全部能力收敛到 shell |
+| TOOL | `run_terminal()` | 唯一工具：全部能力收敛到 shell + 安全拦截 |
 | SEC | `encrypt/decrypt_key()` | 机器指纹种子 + 加密，Key 不落明文 |
+
+## SECURITY 安全模型
+
+程序层危险操作拦截：**黑名单匹配 → push 确认块 → Y/N 授权**，拦截点在唯一执行入口 `run_terminal()` 内、`subprocess` 调用之前，LLM 无法绕过。
+
+```mermaid
+flowchart LR
+    A["run_terminal(cmd)"] --> B{"match_danger()<br/>命中黑名单?"}
+    B -->|否| C["subprocess 直接执行"]
+    B -->|是| D["confirm_block()<br/>push ⚠ 确认块"]
+    D -->|"Y"| C
+    D -->|"N / 30s 超时"| E["拒绝返回<br/>命令未执行"]
+```
+
+### 黑名单
+
+| 类别 | 条目 |
+|---|---|
+| 不可逆删除 | `rm` `sudo rm` |
+| 磁盘直写/分区/格式化 | `dd` `mkfs` `format` `wipe` `wipefs` `shred` `blkdiscard` `fdisk` `parted` `pvcreate` `vgremove` `lvremove` `> /dev/sd` |
+| 提权+破坏 | `sudo dd` `sudo mkfs` |
+| 权限全开 | `chmod -R 777` |
+| fork bomb | `:(){` `:(){:|:&};:` |
+
+### 用户授权
+
+- 命中黑名单 → 终端 push 确认块（⚠ + 命中项 + 命令全文）
+- 输入 `Y` 执行 / `N` 拒绝 / 30 秒无输入自动拒绝（`AUTH_TIMEOUT` 可调，`0` = 永不超时）
+
+### 自定义
+
+```python
+AUTH_TIMEOUT = 30          # 确认超时秒数；0 = 永不超时
+DANGER_BL = [...]          # 黑名单项：单项=命令名，多项=组合命令
+PIPE_PATTERNS = [...]      # 正则扩展位：(正则, 描述) 元组
+```
 
 ## CACHE HIT RATE 缓存命中率
 

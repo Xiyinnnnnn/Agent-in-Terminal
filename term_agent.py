@@ -73,6 +73,100 @@ os.makedirs(MEMORY_DIR, exist_ok=True)
 TOOL_ALIASES = ["run_terminal", "terminal", "shell", "bash", "exec", "cmd", "run", "终端", "执行", "运行", "命令"]
 _ALIAS_RE = "|".join(TOOL_ALIASES)
 
+AUTH_TIMEOUT = 30   
+DANGER_BL = [
+    "rm", "sudo rm",
+    "dd", "mkfs", "format", "wipe", "wipefs", "shred", "blkdiscard",
+    "fdisk", "parted", "pvcreate", "vgremove", "lvremove",
+    "dd if=/dev/zero", "dd if=/dev/urandom", "> /dev/sd",
+    "sudo dd", "sudo mkfs",
+    "chmod -R 777",
+    ":(){", ":(){:|:&};:",
+]
+
+PIPE_PATTERNS = []  
+
+def _first_hit(seg):
+    """子命令首词命中单词黑名单（支持 mkfs.ext4 点分、:(){ 冒号变体）"""
+    w = seg.split()[0] if seg.split() else ""
+    for b in DANGER_BL:
+        if " " not in b and (w == b or w.startswith(b + ".") or w.startswith(b + ":")):
+            return b
+    return None
+
+def match_danger(cmd):
+    """程序层匹配操作：命中黑名单返回命中项，未命中返回 None。
+    三层匹配：
+      ① 子命令首词（&& / ; / | 分段，如 'touch x && rm y' 中 rm 也能命中）
+      ② 多词黑名单项整命令包含（sudo rm / chmod -R 777...）
+      ③ PIPE_PATTERNS 正则（当前为空，需要拦截远程代码执行类时填入）"""
+    c = cmd.strip()
+    if not c:
+        return None
+    for seg in re.split(r"[;&|]", c):
+        hit = _first_hit(seg)
+        if hit:
+            return hit
+    padded = " " + c + " "
+    for b in DANGER_BL:
+        if " " in b and (" " + b + " " in padded):
+            return b
+    for pat, desc in PIPE_PATTERNS:
+        if re.search(pat, c, re.I):
+            return desc
+    return None
+
+def input_yn(prompt, timeout):
+    """带超时的 Y/N 输入。超时返回 None；非交互终端退化为普通 input"""
+    if timeout > 0 and sys.stdin.isatty():
+        import select, termios, tty
+        print(prompt, end="", flush=True)
+        fd = sys.stdin.fileno()
+        old = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            r, _, _ = select.select([sys.stdin], [], [], timeout)
+            if not r:
+                return None
+            line = ""
+            while True:
+                ch = sys.stdin.read(1)
+                if ch in ("", "\n", "\r"):
+                    break
+                line += ch
+            return line.strip()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
+    return input(prompt).strip()
+
+def confirm_block(cmd, hit):
+    """程序层 push 确认块：打印警告 + 等待 Y/N"""
+    print("──────────────────────────────────")
+    print("⚠ 危险命令，需要键盘授权：")
+    print(f"   命中黑名单: {hit}")
+    print(f"   命令: {cmd}")
+    if AUTH_TIMEOUT > 0:
+        print(f"   [Y] 同意执行  |  [N] 拒绝  ({AUTH_TIMEOUT}秒无输入自动拒绝)")
+    else:
+        print("   [Y] 同意执行  |  [N] 拒绝")
+    print("──────────────────────────────────")
+    while True:
+        try:
+            ans = input_yn("   确认执行 (Y/N): ", AUTH_TIMEOUT)
+        except (EOFError, KeyboardInterrupt):
+            print("\n[已拒绝] 输入中断")
+            return False
+        if ans is None:
+            print(f"[超时拒绝] {AUTH_TIMEOUT}秒内未收到输入")
+            return False
+        a = ans.strip().lower()
+        if a in ("y", "yes"):
+            return True
+        if a in ("n", "no"):
+            print("[已拒绝] 用户输入了 N")
+            return False
+        print(f"   无效输入 [{ans}]，请输入 Y 或 N")
+
 def extract_tool_call(content):
     if not content:
         return None
@@ -214,6 +308,11 @@ def run_terminal(args):
     cmd = args.get("command", "").strip()
     if not cmd:
         return "错误：没有命令"
+    hit = match_danger(cmd)
+    if hit:
+        print(f"\n[安全] 命中黑名单 '{hit}'，程序层拦截，等待确认...")
+        if not confirm_block(cmd, hit):
+            return f"[已拒绝] 危险命令未执行（命中黑名单: {hit}）"
     try:
         p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=600)
         out = (p.stdout or "") + (("\n[stderr] " + p.stderr) if p.stderr else "")
