@@ -42,35 +42,17 @@ python3 ~/.local/bin/term_agent/term_agent.py
 
 ## ARCHITECTURE
 
-```
-+-------------------+      +---------------------------+
-|     welcome()     | ---> |           main()          |
-|  first-run key    |      |  loop: llm <-> tool_calls |
-|  setup + encrypt  |      |  MAX_ROUNDS=30 soft cap  |
-+-------------------+      +-------------+-------------+
-                                         |
-              +--------------------------+--------------------------+
-              |                          |                          |
-       +------v------+            +------v------+            +------v------+
-       |    llm()    |            |  compress() |            | run_terminal |
-       |  deepseek-  |            |  900K       |            |   the only   |
-       |  v4-flash   |            |  summary    |            |   tool: exec |
-       |  64K cap    |            |  chain      |            |   shell cmds |
-       +------+------+            +------+------+            +------+------+
-              |                          |                          |
-              |                    +-----v-----+                    |
-              +------------------->| build_ctx |<-------------------+
-                                   | mem_hist  |
-                                   +-----+-----+
-                                         |
-                         +---------------+---------------+
-                         |                               |
-                  +------v------+                 +------v------+
-                  |  key store  |                 |   memory    |
-                  | encrypt/dec |                 | ~/.config/  |
-                  | _machine_   |                 | term_agent/ |
-                  | seed        |                 |  *.md files |
-                  +-------------+                 +-------------+
+```mermaid
+flowchart TD
+    A["welcome()<br/>first-run key setup + encrypt"] --> B["main()<br/>loop: llm <-> tool_calls<br/>MAX_ROUNDS=30 soft cap"]
+    B --> C["llm()<br/>deepseek-v4-flash<br/>64K cap"]
+    B --> D["compress()<br/>900K summary chain"]
+    B --> E["run_terminal()<br/>the only tool: exec shell cmds"]
+    C --> F["build_ctx()<br/>mem_hist"]
+    D --> F
+    E --> F
+    F --> G["key store<br/>encrypt/decrypt machine seed"]
+    F --> H["memory<br/>~/.config/term_agent/*.md files"]
 ```
 
 | 层 | 组件 | 职责 |
@@ -81,6 +63,13 @@ python3 ~/.local/bin/term_agent/term_agent.py
 | MEM | `compress()` / `build_context()` | 900K 阈值压缩，摘要链跨会话延续 |
 | TOOL | `run_terminal()` | 唯一工具：全部能力收敛到 shell |
 | SEC | `encrypt/decrypt_key()` | 机器指纹种子 + 加密，Key 不落明文 |
+
+## CACHE HIT RATE 缓存命中率
+
+按 **DeepSeek-V4-flash 金额口径**实测：缓存命中率 **94.39% 起步**。
+
+> 金额口径：按实际计费金额加权统计（缓存命中输入 token 单价远低于未命中），而非简单 token 数占比。
+> 实测基准 94.39% 起步——会话越长、上下文复用越多，命中率与成本优势越明显。
 
 ## NOTES
 
