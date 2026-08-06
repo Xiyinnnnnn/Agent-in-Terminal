@@ -1,4 +1,4 @@
-import json, os, re, subprocess, sys, urllib.request, base64, hashlib
+import json, os, re, subprocess, sys, time, urllib.request, base64, hashlib
 
 SYSTEM = """[ROLE] Terminal Agent | [LANG] zh-CN
 [MUST] 工具先于语言：思考→run_terminal→执行→验证
@@ -272,9 +272,9 @@ def llm(messages, with_tools=True, stream=True):
         return {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
     except urllib.error.HTTPError as e:
         print(f"\n[API错误 {e.code}] {e.read().decode('utf-8','ignore')[:300]}")
-    except Exception as e:
-        print(f"\n[API错误] {e}")
-    return None
+        return "API_ERROR"
+    except Exception:
+        return None
 
 def compress(hist, summary=None):
     msgs = []
@@ -283,7 +283,7 @@ def compress(hist, summary=None):
     msgs += hist
     msgs.append({"role": "user", "content": "[总结所有]"})
     resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False, stream=False)
-    if resp and resp.get("choices"):
+    if isinstance(resp, dict) and resp.get("choices"):
         return "历史背景：" + resp["choices"][0]["message"]["content"]
     return summary or "历史背景：（压缩失败）"
 
@@ -359,10 +359,17 @@ def main():
             print("上下文已压缩 → [system, 摘要块, 当前任务]")
 
         last_caught = None
+        retry = 0
         repeat = 0
         while True:
             resp = llm(build_context(mem_hist, summary))
             if resp is None:
+                retry += 1
+                if retry > 10:
+                    break
+                time.sleep(0.1)
+                continue
+            if resp == "API_ERROR":
                 break
             usage = (resp.get("usage") or {}).get("total_tokens", 0)
             if usage > MAX_TOK:
