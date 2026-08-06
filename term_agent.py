@@ -137,13 +137,13 @@ def confirm_block(cmd, hit):
     print(f"   命中黑名单: {hit}")
     print(f"   命令: {cmd}")
     if AUTH_TIMEOUT > 0:
-        print(f"   [Y] 同意执行  |  [N] 拒绝  ({AUTH_TIMEOUT}秒无输入自动拒绝)")
+        print(f"\033[31m   [Y] 同意执行  |  [N] 拒绝  ({AUTH_TIMEOUT}秒无输入自动拒绝)\033[0m")
     else:
-        print("   [Y] 同意执行  |  [N] 拒绝")
+        print("\033[31m   [Y] 同意执行  |  [N] 拒绝\033[0m")
     print("──────────────────────────────────")
     while True:
         try:
-            ans = input_yn("   确认执行 (Y/N): ", AUTH_TIMEOUT)
+            ans = input_yn("\033[31m   确认执行 (Y/N): \033[0m", AUTH_TIMEOUT)
         except (EOFError, KeyboardInterrupt):
             print("\n[已拒绝] 输入中断")
             return False
