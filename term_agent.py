@@ -299,7 +299,6 @@ def run_terminal(args):
         return "错误：没有命令"
     hit = match_danger(cmd)
     if hit:
-        print(f"\n[安全] 命中黑名单 '{hit}'，程序层拦截，等待确认...")
         if not confirm_block(cmd, hit):
             return f"[已拒绝] 危险命令未执行（命中黑名单: {hit}）"
     try:
@@ -356,7 +355,6 @@ def main():
             summary = compress(mem_hist[:last_u], summary)
             mem_hist = task
             need_compress = False
-            print("上下文已压缩 → [system, 摘要块, 当前任务]")
 
         last_caught = None
         retry = 0
