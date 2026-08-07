@@ -1,7 +1,7 @@
 import json, os, re, subprocess, sys, time, urllib.request, base64, hashlib
 
 SYSTEM = """[ROLE] Terminal Agent | [LANG] zh-CN
-[MUST] 工具先于语言：思考→run_terminal→执行→验证
+[MUST] 工具先于语言：思考→RUN→执行→验证
 [MUST] 产出写文件；简单问答直接回复
 [MUST] 查优于猜：记忆→命令探查→推理，不跳过
 [MUST_NOT] 草稿当交付；未完成→继续调工具
@@ -27,7 +27,7 @@ SYSTEM = """[ROLE] Terminal Agent | [LANG] zh-CN
   P1 拆解：核心需求+隐含需求 → 明确目标
   P2 回记忆：ls 记忆目录/*.md 按文件名摘要选相关 → cat 精读 → 命中复用+标源 | 无→命令探查→不编造
   P3 规划：步骤表(步骤→命令→预期→验证)
-  P4 执行：逐步 run_terminal，失败→读报错→修正重试
+  P4 执行：逐步 RUN，失败→读报错→修正重试
   P5 存忆：完成→写 记忆目录/摘要名.md
 
 [SUMMARY] 收到"[总结所有]"→ 不调工具，总结全部历史，输出纯摘要正文
@@ -40,20 +40,20 @@ SYSTEM = """[ROLE] Terminal Agent | [LANG] zh-CN
 P1 拆解: {目标}
 P2 回记忆: ls 记忆目录/*.md 按文件名摘要选相关 → {命中|无历史}
 P3 规划: {步骤→命令→验证}
-P4 执行: run_terminal {命令} → {结果}
+P4 执行: RUN {命令} → {结果}
 P5 存忆: 写 记忆目录/摘要名.md
 </think>
 <answer>{结果总结}</answer>
 </EXAMPLE>
 
 <RULES> P1-P5不进answer；记忆必查必存；危险先授权；
-  参数(base URL/模型/阈值)写死，要改→用run_terminal编辑本程序文件</RULES>"""
+  参数(base URL/模型/阈值)写死，要改→用RUN编辑本程序文件</RULES>"""
 
 TOOLS = [{
     "type": "function",
     "function": {
-        "name": "run_terminal",
-        "description": "在终端执行 shell 命令并返回输出。唯一工具，别名 terminal/shell/exec/cmd/终端/执行，一切系统操作都通过它完成",
+        "name": "RUN",
+        "description": "在终端执行 shell 命令并返回输出。唯一工具，主名 RUN，别名 run_terminal/terminal/shell/exec/cmd/终端/执行（大小写不敏感、容忍拼写变体），一切系统操作都通过它完成",
         "parameters": {"type": "object", "properties": {
             "command":   {"type": "string", "description": "要执行的命令"},
             "explain":   {"type": "string", "description": "为什么执行这条命令"},
@@ -69,7 +69,10 @@ KEY_FILE  = os.path.join(BASE_DIR, "key.bin")
 MEMORY_DIR = os.path.join(BASE_DIR, "memory")
 os.makedirs(MEMORY_DIR, exist_ok=True)
 
-TOOL_ALIASES = ["run_terminal", "terminal", "shell", "bash", "exec", "cmd", "run", "终端", "执行", "运行", "命令"]
+TOOL_ALIASES = ["run_terminal", "run_terminel", "run_termminal", "run_termial", "run_termina", "run_terminl",
+                "run_terminall", "runn_terminal", "run_termnial", "run_termianl", "run_terminla", "run__terminal",
+                "runterminal", "run_terminals", "run_terminal_", "RUN", "run", "Run", "rUN", "RUn", "rUn",
+                "terminal", "shell", "bash", "exec", "cmd", "终端", "执行", "运行", "命令"]
 _ALIAS_RE = "|".join(TOOL_ALIASES)
 
 AUTH_TIMEOUT = 30
@@ -161,7 +164,7 @@ def confirm_block(cmd, hit):
 def extract_tool_call(content):
     if not content:
         return None
-    m = re.search(r"(?:" + _ALIAS_RE + r")\s*\(\s*(.*?)\s*\)", content, re.S)
+    m = re.search(r"(?:" + _ALIAS_RE + r")\s*\(\s*(.*?)\s*\)", content, re.S | re.I)
     if m:
         body = m.group(1)
         mc = re.search(r"command\s*[:=]\s*[\"']([^\"']+)[\"']", body)
@@ -178,7 +181,7 @@ def extract_tool_call(content):
                 return {"command": str(d["command"]).strip(), "explain": "正文调用捕获", "dangerous": bool(d.get("dangerous"))}
         except Exception:
             pass
-    m2 = re.search(r"(?:" + _ALIAS_RE + r")\s*[:：]\s*[\"'`]?([^\"'`\n，。；;、]+)", content)
+    m2 = re.search(r"(?:" + _ALIAS_RE + r")\s*[:：]\s*[\"'`]?([^\"'`\n，。；;、]+)", content, re.I)
     if m2:
         cmd = m2.group(1).strip()
         if cmd:
@@ -295,7 +298,7 @@ def build_context(mem_hist, summary=None):
         ctx.append({"role": "user", "content": summary})
     return ctx + mem_hist
 
-def run_terminal(args):
+def RUN(args):
     cmd = args.get("command", "").strip()
     if not cmd:
         return "错误：没有命令"
@@ -312,7 +315,8 @@ def run_terminal(args):
     except Exception as e:
         return f"执行失败: {e}"
 
-TOOL_IMPL = {"run_terminal": run_terminal}
+TOOL_IMPL = {"RUN": RUN, "run_terminal": RUN}
+_IMPL_LOWER = {k.lower(): v for k, v in TOOL_IMPL.items()}
 
 def welcome():
     print("\n[首次运行] 配置 DeepSeek API Key")
@@ -385,7 +389,8 @@ def main():
                     except json.JSONDecodeError:
                         args = {}
                     print(f"\n[工具] {name} {args.get('explain','')} | {args.get('command','')[:100]}")
-                    result = TOOL_IMPL[name](args) if name in TOOL_IMPL else f"未知工具 {name}"
+                    impl = TOOL_IMPL.get(name) or _IMPL_LOWER.get(name.lower())
+                    result = impl(args) if impl else f"未知工具 {name}"
                     mem_hist.append({"role": "tool", "tool_call_id": tc.get("id"), "content": str(result)})
                 continue
             caught = extract_tool_call(content)
@@ -397,10 +402,10 @@ def main():
                     repeat = 1
                 cid = "gen_" + str(len(mem_hist))
                 tc = {"id": cid, "type": "function",
-                      "function": {"name": "run_terminal", "arguments": json.dumps(caught, ensure_ascii=False)}}
+                      "function": {"name": "RUN", "arguments": json.dumps(caught, ensure_ascii=False)}}
                 mem_hist.append({"role": "assistant", "content": content, "tool_calls": [tc]})
-                print(f"\n[正文捕获] run_terminal {caught['command'][:80]}")
-                result = TOOL_IMPL["run_terminal"](caught)
+                print(f"\n[正文捕获] RUN {caught['command'][:80]}")
+                result = TOOL_IMPL["RUN"](caught)
                 mem_hist.append({"role": "tool", "tool_call_id": cid, "content": str(result)})
                 continue
             if content: print()
