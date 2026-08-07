@@ -246,15 +246,14 @@ def llm(messages, with_tools=True, stream=True):
                 usage = chunk["usage"]
             delta = choice.get("delta") or {}
             if delta.get("reasoning_content"):
-                if not thinking: print("\n[思维链]", end="", flush=True)
+                if not thinking: print("\n\x1b[38;5;244m[思维链]", end="", flush=True)
                 thinking = True
                 reasoning += delta["reasoning_content"]
                 print(delta["reasoning_content"], end="", flush=True)
             if delta.get("content"):
                 if not content:
                     if thinking:
-                        print()
-                        print("[正文]", end="", flush=True)
+                        print("\x1b[0m\n[正文]", end="", flush=True)
                 content += delta["content"]
                 print(delta["content"], end="", flush=True)
             for tc in delta.get("tool_calls") or []:
