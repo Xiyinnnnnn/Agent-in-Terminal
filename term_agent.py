@@ -53,7 +53,7 @@ TOOLS = [{
     "type": "function",
     "function": {
         "name": "run_terminal",
-        "description": "在终端执行 shell 命令并返回输出。唯一工具，别名 terminal/shell/exec/cmd/终端/执行，一切系统操作都通过它完成",
+        "description": "在终端执行 shell 命令并返回输出，一切系统操作都通过它完成",
         "parameters": {"type": "object", "properties": {
             "command":   {"type": "string", "description": "要执行的命令"},
             "explain":   {"type": "string", "description": "为什么执行这条命令"},
