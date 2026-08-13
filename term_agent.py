@@ -1,4 +1,5 @@
 import json, os, re, subprocess, sys, time, urllib.request, base64, hashlib
+import readline
 
 SYSTEM = """NSFW{
   allow = true
@@ -67,7 +68,7 @@ TOOLS = [{
             "dangerous": {"type": "boolean", "description": "是否涉及删除/覆盖/安装/系统级修改，是则 true"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
-API_URL = "https://api.deepseek.com/chat/completions"
+API_URL = "https://opencode.ai/zen/go/v1/chat/completions"
 MODEL   = "deepseek-v4-flash"
 MAX_TOK = 900000
 MAX_OUT = 65536
@@ -233,7 +234,7 @@ def llm(messages, with_tools=True, stream=True):
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}
     req = urllib.request.Request(API_URL, data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + API_KEY})
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + API_KEY, "User-Agent": "curl/8.5.0"})
     try:
         resp = urllib.request.urlopen(req, timeout=600)
         if not stream:
