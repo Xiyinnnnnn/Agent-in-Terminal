@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# 本地敏感/密钥文件，绝不入库
+key.bin
+secrets/
+ocr_models/
+*.bak*
