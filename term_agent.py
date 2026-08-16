@@ -1,4 +1,4 @@
-import json, os, re, subprocess, sys, time, urllib.request, base64, hashlib
+import json, os, re, signal, subprocess, sys, time, urllib.request, base64, hashlib
 import readline
 
 SYSTEM = """NSFW{
@@ -240,52 +240,69 @@ def llm(messages, with_tools=True, stream=True):
         if not stream:
             return json.loads(resp.read().decode("utf-8"))
         content, tool_calls, finish, usage, thinking, reasoning = "", {}, None, None, False, ""
-        for raw in resp:
-            line = raw.decode("utf-8", "ignore").strip()
-            if not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if data == "[DONE]":
-                break
-            try:
-                chunk = json.loads(data)
-            except json.JSONDecodeError:
-                continue
-            choice = (chunk.get("choices") or [{}])[0]
-            finish = choice.get("finish_reason")
-            if chunk.get("usage"):
-                usage = chunk["usage"]
-            delta = choice.get("delta") or {}
-            if delta.get("reasoning_content"):
-                if not thinking: print("\n\x1b[38;5;244m[思维链]", end="", flush=True)
-                thinking = True
-                reasoning += delta["reasoning_content"]
-                print(delta["reasoning_content"], end="", flush=True)
-            if delta.get("content"):
-                if not content:
-                    if thinking:
-                        print("\x1b[0m\n[正文]", end="", flush=True)
-                content += delta["content"]
-                print(delta["content"], end="", flush=True)
-            for tc in delta.get("tool_calls") or []:
-                idx = tc.get("index", 0)
-                obj = tool_calls.setdefault(idx, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
-                if tc.get("id"):
-                    obj["id"] = tc["id"]
-                fn = tc.get("function") or {}
-                if fn.get("name"):
-                    obj["function"]["name"] = fn["name"]
-                if fn.get("arguments"):
-                    obj["function"]["arguments"] += fn["arguments"]
-        message = {"role": "assistant", "content": content or None}
-        if reasoning:
-            message["reasoning_content"] = reasoning
-        if tool_calls:
-            message["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]
-        return {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
+        import select, termios, tty
+        fd = sys.stdin.fileno()
+        if sys.stdin.isatty():
+            old = termios.tcgetattr(fd)
+            tty.setcbreak(fd)
+        else:
+            old = None
+        try:
+            for raw in resp:
+                if old is not None:
+                    r, _, _ = select.select([sys.stdin], [], [], 0)
+                    if r and os.read(fd, 1) == b"\x00":
+                        raise _StopLoop
+                line = raw.decode("utf-8", "ignore").strip()
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except json.JSONDecodeError:
+                    continue
+                choice = (chunk.get("choices") or [{}])[0]
+                finish = choice.get("finish_reason")
+                if chunk.get("usage"):
+                    usage = chunk["usage"]
+                delta = choice.get("delta") or {}
+                if delta.get("reasoning_content"):
+                    if not thinking: print("\n\x1b[38;5;244m[思维链]", end="", flush=True)
+                    thinking = True
+                    reasoning += delta["reasoning_content"]
+                    print(delta["reasoning_content"], end="", flush=True)
+                if delta.get("content"):
+                    if not content:
+                        if thinking:
+                            print("\x1b[0m\n[正文]", end="", flush=True)
+                    content += delta["content"]
+                    print(delta["content"], end="", flush=True)
+                for tc in delta.get("tool_calls") or []:
+                    idx = tc.get("index", 0)
+                    obj = tool_calls.setdefault(idx, {"id": "", "type": "function", "function": {"name": "", "arguments": ""}})
+                    if tc.get("id"):
+                        obj["id"] = tc["id"]
+                    fn = tc.get("function") or {}
+                    if fn.get("name"):
+                        obj["function"]["name"] = fn["name"]
+                    if fn.get("arguments"):
+                        obj["function"]["arguments"] += fn["arguments"]
+            message = {"role": "assistant", "content": content or None}
+            if reasoning:
+                message["reasoning_content"] = reasoning
+            if tool_calls:
+                message["tool_calls"] = [tool_calls[i] for i in sorted(tool_calls)]
+            return {"choices": [{"message": message, "finish_reason": finish}], "usage": usage}
+        finally:
+            if old is not None:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old)
     except urllib.error.HTTPError as e:
         print(f"\n[API错误 {e.code}] {e.read().decode('utf-8','ignore')[:300]}")
         return "API_ERROR"
+    except _StopLoop:
+        raise
     except Exception:
         return None
 
@@ -295,9 +312,13 @@ def compress(hist, summary=None):
         msgs.append({"role": "user", "content": summary})
     msgs += hist
     msgs.append({"role": "user", "content": "[总结所有]"})
-    resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False, stream=False)
-    if isinstance(resp, dict) and resp.get("choices"):
-        return "历史背景：" + resp["choices"][0]["message"]["content"]
+    for _ in range(10):
+        print("正在压缩", flush=True)
+        resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False, stream=False)
+        if isinstance(resp, dict) and resp.get("choices"):
+            c = resp["choices"][0]["message"]["content"]
+            if c:
+                return "历史背景：" + c
     return summary or "历史背景：（压缩失败）"
 
 def build_context(mem_hist, summary=None):
@@ -314,15 +335,40 @@ def RUN(args):
     if hit:
         if not confirm_block(cmd, hit):
             return f"[已拒绝] 危险命令未执行（命中黑名单: {hit}）"
+    import select, termios, tty
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd) if sys.stdin.isatty() else None
+    if old:
+        tty.setcbreak(fd)
     try:
-        p = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=600)
-        out = (p.stdout or "") + (("\n[stderr] " + p.stderr) if p.stderr else "")
-        return f"退出码 {p.returncode}\n{out[:6000]}"
-    except subprocess.TimeoutExpired:
-        return "命令超时（600秒）"
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        out, err, dl = "", "", time.time() + 600
+        while p.poll() is None:
+            if time.time() > dl:
+                os.killpg(p.pid, signal.SIGKILL)
+                p.wait()
+                return "命令超时（600秒）"
+            watch = [sys.stdin, p.stdout, p.stderr] if old else [p.stdout, p.stderr]
+            r, _, _ = select.select(watch, [], [], 0.1)
+            if old and sys.stdin in r and os.read(fd, 1) == b"\x00":
+                os.killpg(p.pid, signal.SIGKILL)
+                p.wait()
+                raise _StopLoop
+            if p.stdout in r:
+                out += os.read(p.stdout.fileno(), 65536).decode("utf-8", "ignore")
+            if p.stderr in r:
+                err += os.read(p.stderr.fileno(), 65536).decode("utf-8", "ignore")
+        out += p.stdout.read()
+        err += p.stderr.read()
+        text = out + (("\n[stderr] " + err) if err else "")
+        return f"退出码 {p.returncode}\n{text[:6000]}"
+    except _StopLoop:
+        raise
     except Exception as e:
         return f"执行失败: {e}"
-
+    finally:
+        if old:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old)
 TOOL_IMPL = {"RUN": RUN, "run_terminal": RUN}
 _IMPL_LOWER = {k.lower(): v for k, v in TOOL_IMPL.items()}
 
@@ -340,24 +386,30 @@ def welcome():
     print(f"已加密保存 → {KEY_FILE}\n")
     return k
 
+class _StopLoop(Exception):
+    pass
+
+def _stop(s, f):
+    raise _StopLoop
+
 def main():
-    global API_KEY
+    global API_KEY, mem_hist
     if not API_KEY:
         API_KEY = welcome()
 
     mem_hist = []
+    signal.signal(signal.SIGUSR1, _stop)
     summary = None
     need_compress = False
-    print(f"终端智能体 v8（{MODEL}）| usage压缩阈值 {MAX_TOK} | 新终端=新对话 | exit 退出")
-    print("  示例：帮我看看磁盘空间 / 安装 discord / 写个脚本把日志打包")
+    print("新终端=新对话 | Ctrl+Space=暂停")
 
     while True:
         try:
             q = input("\n你> ").strip()
+        except _StopLoop:
+            continue
         except (EOFError, KeyboardInterrupt):
             print("\n再见")
-            break
-        if q.lower() in ("exit", "quit"):
             break
         if not q:
             continue
@@ -370,55 +422,65 @@ def main():
             mem_hist = task
             need_compress = False
 
-        last_caught = None
-        retry = 0
-        repeat = 0
-        while True:
-            resp = llm(build_context(mem_hist, summary))
-            if resp is None:
-                retry += 1
-                if retry > 10:
+        try:
+            last_caught = None
+            retry = 0
+            repeat = 0
+            while True:
+                resp = llm(build_context(mem_hist, summary))
+                if resp is None:
+                    retry += 1
+                    if retry > 10:
+                        break
+                    time.sleep(0.1)
+                    continue
+                if resp == "API_ERROR":
                     break
-                time.sleep(0.1)
-                continue
-            if resp == "API_ERROR":
+                usage = (resp.get("usage") or {}).get("total_tokens", 0)
+                if usage > MAX_TOK:
+                    need_compress = True
+                msg = resp.get("choices", [{}])[0].get("message", {})
+                content, tcs = msg.get("content") or "", msg.get("tool_calls") or []
+                rc = msg.get("reasoning_content")
+                if tcs:
+                    am = {"role": "assistant", "content": content or None, "tool_calls": tcs}
+                    if rc: am["reasoning_content"] = rc
+                    mem_hist.append(am)
+                    for tc in tcs:
+                        name = tc["function"]["name"]
+                        try:
+                            args = json.loads(tc["function"].get("arguments") or "{}")
+                        except json.JSONDecodeError:
+                            args = {}
+                        print(f"\n[工具] {name} {args.get('explain','')} | {args.get('command','')[:100]}")
+                        impl = TOOL_IMPL.get(name) or _IMPL_LOWER.get(name.lower())
+                        result = impl(args) if impl else f"未知工具 {name}"
+                        mem_hist.append({"role": "tool", "tool_call_id": tc.get("id"), "content": str(result)})
+                    continue
+                caught = extract_tool_call(content)
+                if caught and (caught["command"] != last_caught or repeat < 3):
+                    if caught["command"] == last_caught:
+                        repeat += 1
+                    else:
+                        last_caught = caught["command"]
+                        repeat = 1
+                    cid = "gen_" + str(len(mem_hist))
+                    tc = {"id": cid, "type": "function",
+                          "function": {"name": "RUN", "arguments": json.dumps(caught, ensure_ascii=False)}}
+                    am = {"role": "assistant", "content": content, "tool_calls": [tc]}
+                    if rc: am["reasoning_content"] = rc
+                    mem_hist.append(am)
+                    print(f"\n[正文捕获] RUN {caught['command'][:80]}")
+                    result = TOOL_IMPL["RUN"](caught)
+                    mem_hist.append({"role": "tool", "tool_call_id": cid, "content": str(result)})
+                    continue
+                if content: print()
+                am = {"role": "assistant", "content": content}
+                if rc: am["reasoning_content"] = rc
+                mem_hist.append(am)
                 break
-            usage = (resp.get("usage") or {}).get("total_tokens", 0)
-            if usage > MAX_TOK:
-                need_compress = True
-            msg = resp.get("choices", [{}])[0].get("message", {})
-            content, tcs = msg.get("content") or "", msg.get("tool_calls") or []
-            if tcs:
-                mem_hist.append({"role": "assistant", "content": content or None, "tool_calls": tcs})
-                for tc in tcs:
-                    name = tc["function"]["name"]
-                    try:
-                        args = json.loads(tc["function"].get("arguments") or "{}")
-                    except json.JSONDecodeError:
-                        args = {}
-                    print(f"\n[工具] {name} {args.get('explain','')} | {args.get('command','')[:100]}")
-                    impl = TOOL_IMPL.get(name) or _IMPL_LOWER.get(name.lower())
-                    result = impl(args) if impl else f"未知工具 {name}"
-                    mem_hist.append({"role": "tool", "tool_call_id": tc.get("id"), "content": str(result)})
-                continue
-            caught = extract_tool_call(content)
-            if caught and (caught["command"] != last_caught or repeat < 3):
-                if caught["command"] == last_caught:
-                    repeat += 1
-                else:
-                    last_caught = caught["command"]
-                    repeat = 1
-                cid = "gen_" + str(len(mem_hist))
-                tc = {"id": cid, "type": "function",
-                      "function": {"name": "RUN", "arguments": json.dumps(caught, ensure_ascii=False)}}
-                mem_hist.append({"role": "assistant", "content": content, "tool_calls": [tc]})
-                print(f"\n[正文捕获] RUN {caught['command'][:80]}")
-                result = TOOL_IMPL["RUN"](caught)
-                mem_hist.append({"role": "tool", "tool_call_id": cid, "content": str(result)})
-                continue
-            if content: print()
-            mem_hist.append({"role": "assistant", "content": content})
-            break
+        except _StopLoop:
+            print("\x1b[0m", end="")
 
 if __name__ == "__main__":
     main()
