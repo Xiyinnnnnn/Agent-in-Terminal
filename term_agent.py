@@ -289,6 +289,8 @@ def llm(messages, with_tools=True, stream=True):
                         obj["function"]["name"] = fn["name"]
                     if fn.get("arguments"):
                         obj["function"]["arguments"] += fn["arguments"]
+            if thinking:
+                print("\x1b[0m", end="", flush=True)
             message = {"role": "assistant", "content": content or None}
             if reasoning:
                 message["reasoning_content"] = reasoning
