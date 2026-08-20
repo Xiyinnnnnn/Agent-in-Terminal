@@ -65,6 +65,12 @@ P5 存忆存技（后存，同构于记忆循环）:
 <RULES> P1-P5不进answer；记忆/技能必查必存；危险先授权；
   参数(base URL/模型/阈值)写死，要改→用RUN编辑本程序文件</RULES>"""
 
+# ── 2026-08-21 dsh WEAK_FLASH 兼容层(社区Flash最优persona w7; 实测质量5/5全过, token比纯重型省36%) ──
+SYSTEM = ("You are a helpful assistant.\n"
+          "Before acting, decide the task type (build or fix) and adopt the matching style: build \u2192 hands-on production; fix \u2192 inspect-and-plan.\n"
+          "Before acting, briefly review what you have already done in this session and continue from where you left off; do not repeat completed steps. Do not run environment checks (echo, whoami, uname, node --version, date) or exhaustive grep/glob scans.\n"
+          "Think deeply first, then produce.\n\n" + SYSTEM)
+
 TOOLS = [{
     "type": "function",
     "function": {
@@ -76,7 +82,7 @@ TOOLS = [{
             "dangerous": {"type": "boolean", "description": "是否涉及删除/覆盖/安装/系统级修改，是则 true"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
-API_URL = "https://api.deepseek.com/chat/completions"
+API_URL = "https://ark.cn-beijing.volces.com/api/plan/v3/chat/completions"
 MODEL   = "deepseek-v4-flash"
 MAX_TOK = 900000
 MAX_OUT = 65536
