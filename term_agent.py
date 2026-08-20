@@ -76,7 +76,7 @@ TOOLS = [{
             "dangerous": {"type": "boolean", "description": "是否涉及删除/覆盖/安装/系统级修改，是则 true"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
-API_URL = "https://opencode.ai/zen/go/v1/chat/completions"
+API_URL = "https://api.deepseek.com/chat/completions"
 MODEL   = "deepseek-v4-flash"
 MAX_TOK = 900000
 MAX_OUT = 65536
@@ -318,11 +318,29 @@ def llm(messages, with_tools=True, stream=True):
     except Exception:
         return None
 
+
+def _img(q):
+    import shlex
+    _M={'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.bmp':'image/bmp'}
+    t=q.strip()
+    if t.startswith(('http://','https://')):
+        return [{'type':'text','text':'看图'},{'type':'image_url','image_url':{'url':t}}] if t.split('?')[0].lower().endswith(('.jpg','.jpeg','.png','.gif','.bmp','.webp')) else q
+    imgs=[]; text=[]
+    for x in shlex.split(t):
+        p=x.strip("'\"")
+        if os.path.isfile(p) and os.path.splitext(p)[1].lower() in _M: imgs.append(p)
+        else: text.append(x)
+    if not imgs: return q
+    b=[base64.b64encode(open(p,'rb').read()).decode() for p in imgs]
+    c=[{'type':'text','text':' '.join(text) or f'{len(imgs)}张图'}]
+    c+=[{'type':'image_url','image_url':{'url':f'data:{_M[os.path.splitext(p)[1].lower()]};base64,{b64}'}} for p,b64 in zip(imgs,b)]
+    return c
+
 def compress(hist, summary=None):
     msgs = []
     if summary:
         msgs.append({"role": "user", "content": summary})
-    msgs += hist
+    msgs += [dict(m,content='[图]') if isinstance(m.get('content'),list) else m for m in hist]
     msgs.append({"role": "user", "content": "[总结所有]"})
     for _ in range(10):
         print("正在压缩", flush=True)
@@ -425,6 +443,7 @@ def main():
             break
         if not q:
             continue
+        q=_img(q)
         mem_hist.append({"role": "user", "content": q})
 
         if need_compress:
