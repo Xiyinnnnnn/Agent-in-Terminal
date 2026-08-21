@@ -326,10 +326,10 @@ def llm(messages, with_tools=True, stream=True):
 
 def _img(q):
     import shlex
-    _M={'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.bmp':'image/bmp'}
+    _M={'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.webp':'image/webp'}
     t=q.strip()
     if t.startswith(('http://','https://')):
-        return [{'type':'text','text':'看图'},{'type':'image_url','image_url':{'url':t}}] if t.split('?')[0].lower().endswith(('.jpg','.jpeg','.png','.gif','.bmp','.webp')) else q
+        return [{'type':'text','text':'看图'},{'type':'image_url','image_url':{'url':t}}] if t.split('?')[0].lower().endswith(('.jpg','.jpeg','.png','.gif','.webp')) else q
     imgs=[]; text=[]
     for x in shlex.split(t):
         p=x.strip("'\"")
