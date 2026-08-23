@@ -241,8 +241,13 @@ def save_api_key(k):
 
 API_KEY = load_api_key()
 
-def llm(messages, with_tools=True, stream=True):
-    body = {"model": MODEL, "messages": messages, "max_tokens": MAX_OUT, "reasoning_effort": "max", "thinking": {"type": "enabled"}}
+def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
+    body = {"model": MODEL, "messages": messages, "max_tokens": max_tokens}
+    if think:
+        body["reasoning_effort"] = "max"
+        body["thinking"] = {"type": "enabled"}
+    else:
+        body["thinking"] = {"type": "disabled"}
     if with_tools:
         body["tools"], body["tool_choice"] = TOOLS, "auto"
     if stream:
@@ -250,11 +255,12 @@ def llm(messages, with_tools=True, stream=True):
         body["stream_options"] = {"include_usage": True}
     req = urllib.request.Request(API_URL, data=json.dumps(body).encode("utf-8"),
         headers={"Content-Type": "application/json", "Authorization": "Bearer " + API_KEY, "User-Agent": "curl/8.5.0"})
+    content, usage = "", None
     try:
         resp = urllib.request.urlopen(req, timeout=600)
         if not stream:
             return json.loads(resp.read().decode("utf-8"))
-        content, tool_calls, finish, usage, thinking, reasoning = "", {}, None, None, False, ""
+        tool_calls, finish, thinking, reasoning = {}, None, False, ""
         import select, termios, tty
         fd = sys.stdin.fileno()
         if sys.stdin.isatty():
@@ -317,10 +323,14 @@ def llm(messages, with_tools=True, stream=True):
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
     except urllib.error.HTTPError as e:
         print(f"\n[API错误 {e.code}] {e.read().decode('utf-8','ignore')[:300]}")
+        if content:
+            return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
         return "API_ERROR"
     except _StopLoop:
         raise
     except Exception:
+        if content:
+            return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
         return None
 
 
@@ -349,12 +359,13 @@ def compress(hist, summary=None):
     msgs.append({"role": "user", "content": "[总结所有]"})
     for _ in range(10):
         print("正在压缩", flush=True)
-        resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False, stream=False)
+        resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False, stream=False, max_tokens=MAX_OUT // 2, think=False)
         if isinstance(resp, dict) and resp.get("choices"):
             c = resp["choices"][0]["message"]["content"]
             if c:
                 return "历史背景：" + c
-    return summary or "历史背景：（压缩失败）"
+        time.sleep(1)
+    return None
 
 def build_context(mem_hist, summary=None):
     ctx = [{"role": "system", "content": SYSTEM}]
@@ -451,26 +462,40 @@ def main():
         q=_img(q)
         mem_hist.append({"role": "user", "content": q})
 
-        if need_compress:
-            last_u = max(i for i, m in enumerate(mem_hist) if m["role"] == "user")
-            task = mem_hist[last_u:]
-            summary = compress(mem_hist[:last_u], summary)
-            mem_hist = task
-            need_compress = False
-
         try:
             last_caught = None
             retry = 0
             repeat = 0
             while True:
+                if need_compress:
+                    last_u = max(i for i, m in enumerate(mem_hist) if m["role"] == "user")
+                    if last_u == 0:
+                        need_compress = False
+                    else:
+                        ns = compress(mem_hist[:last_u], summary)
+                        if ns is None:
+                            need_compress = False
+                            break
+                        summary, mem_hist = ns, mem_hist[last_u:]
+                        need_compress = False
+                        retry = 0
+                        print("\n[已压缩，继续]", flush=True)
                 resp = llm(build_context(mem_hist, summary))
                 if resp is None:
                     retry += 1
                     if retry > 10:
+                        last_u = max(i for i, m in enumerate(mem_hist) if m["role"] == "user")
+                        if last_u > 0:
+                            need_compress = True
+                            continue
                         break
-                    time.sleep(0.1)
+                    time.sleep(1)
                     continue
                 if resp == "API_ERROR":
+                    last_u = max(i for i, m in enumerate(mem_hist) if m["role"] == "user")
+                    if last_u > 0:
+                        need_compress = True
+                        continue
                     break
                 usage = (resp.get("usage") or {}).get("total_tokens", 0)
                 if usage > MAX_TOK:
@@ -478,6 +503,12 @@ def main():
                 msg = resp.get("choices", [{}])[0].get("message", {})
                 content, tcs = msg.get("content") or "", msg.get("tool_calls") or []
                 rc = msg.get("reasoning_content")
+                if resp.get("truncated"):
+                    retry += 1
+                    if retry > 10:
+                        break
+                    time.sleep(1)
+                    continue
                 if tcs:
                     am = {"role": "assistant", "content": content or None, "tool_calls": tcs}
                     if rc: am["reasoning_content"] = rc
