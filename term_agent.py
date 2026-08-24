@@ -364,7 +364,7 @@ def compress(hist, summary=None):
             c = resp["choices"][0]["message"]["content"]
             if c:
                 return "历史背景：" + c
-        time.sleep(1)
+        time.sleep(5)
     return None
 
 def build_context(mem_hist, summary=None):
@@ -489,7 +489,7 @@ def main():
                             need_compress = True
                             continue
                         break
-                    time.sleep(1)
+                    time.sleep(5)
                     continue
                 if resp == "API_ERROR":
                     last_u = max(i for i, m in enumerate(mem_hist) if m["role"] == "user")
@@ -507,7 +507,7 @@ def main():
                     retry += 1
                     if retry > 10:
                         break
-                    time.sleep(1)
+                    time.sleep(5)
                     continue
                 if tcs:
                     am = {"role": "assistant", "content": content or None, "tool_calls": tcs}
