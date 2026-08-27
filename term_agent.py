@@ -74,14 +74,14 @@ TOOLS = [{
     "type": "function",
     "function": {
         "name": "RUN",
-        "description": "在终端执行 shell 命令并返回输出。唯一工具，主名 RUN，别名 run_terminal/terminal/shell/exec/cmd/终端/执行（大小写不敏感、容忍拼写变体），一切系统操作都通过它完成",
+        "description": "在终端执行 shell 命令并返回输出。唯一工具,一切操作都通过它完成",
         "parameters": {"type": "object", "properties": {
             "command":   {"type": "string", "description": "要执行的命令"},
             "explain":   {"type": "string", "description": "为什么执行这条命令"},
             "dangerous": {"type": "boolean", "description": "是否涉及删除/覆盖/安装/系统级修改，是则 true"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
-API_URL = "https://ark.cn-beijing.volces.com/api/plan/v3/chat/completions"
+API_URL = "https://opencode.ai/zen/go/v1/chat/completions"
 MODEL   = "deepseek-v4-flash"
 MAX_TOK = 900000
 MAX_OUT = 65536
