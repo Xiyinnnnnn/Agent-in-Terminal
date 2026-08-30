@@ -90,8 +90,9 @@ TOOLS = [{
 
 API_URL = "https://opencode.ai/zen/go/v1/chat/completions"
 MODEL   = "deepseek-v4-flash"
-MAX_TOK = 900000
-MAX_OUT = 65536
+MAX_TOK = 524288   # 512K 压缩阈值
+MAX_OUT = 32768   # 32K maxtoken
+REASONING_EFFORT = "medium"   # 思考等级: low/medium/high/max（本地qwen与远程统一"中"）
 BASE_DIR  = os.path.expanduser("~/.config/term_agent")
 KEY_FILE  = os.path.join(BASE_DIR, "key.bin")
 MEMORY_DIR = os.path.join(BASE_DIR, "memory")
@@ -253,7 +254,7 @@ API_KEY = load_api_key()
 def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
     body = {"model": MODEL, "messages": messages, "max_tokens": max_tokens}
     if think:
-        body["reasoning_effort"] = "max"
+        body["reasoning_effort"] = REASONING_EFFORT
         body["thinking"] = {"type": "enabled"}
     else:
         body["thinking"] = {"type": "disabled"}
@@ -368,7 +369,7 @@ def compress(hist, summary=None):
     msgs.append({"role": "user", "content": "[总结所有]"})
     for _ in range(10):
         print("正在压缩", flush=True)
-        resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False, stream=False, max_tokens=MAX_OUT // 2, think=False)
+        resp = llm([{"role": "system", "content": SYSTEM}] + msgs, with_tools=False, stream=False, max_tokens=MAX_OUT // 4, think=False)
         if isinstance(resp, dict) and resp.get("choices"):
             c = resp["choices"][0]["message"]["content"]
             if c:
