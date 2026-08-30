@@ -90,8 +90,8 @@ TOOLS = [{
 
 API_URL = "https://opencode.ai/zen/go/v1/chat/completions"
 MODEL   = "deepseek-v4-flash"
-MAX_TOK = 524288   # 512K 压缩阈值
-MAX_OUT = 32768   # 32K maxtoken
+MAX_TOK = 524288
+MAX_OUT = 32768
 REASONING_EFFORT = "medium"   # 思考等级: low/medium/high/max（本地qwen与远程统一"中"）
 BASE_DIR  = os.path.expanduser("~/.config/term_agent")
 KEY_FILE  = os.path.join(BASE_DIR, "key.bin")
