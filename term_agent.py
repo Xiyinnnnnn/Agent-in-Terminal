@@ -361,10 +361,10 @@ def _img(q):
     c+=[{'type':'image_url','image_url':{'url':f'data:{_M[os.path.splitext(p)[1].lower()]};base64,{b64}'}} for p,b64 in zip(imgs,b)]
     return c
 
-def compress(hist, summary=None):
+def compress(hist, summaries=None):
     msgs = []
-    if summary:
-        msgs.append({"role": "user", "content": summary})
+    for s in summaries or []:
+        msgs.append({"role": "user", "content": s})
     msgs += [dict(m,content='[图]') if isinstance(m.get('content'),list) else m for m in hist]
     msgs.append({"role": "user", "content": "[总结所有]"})
     for _ in range(10):
@@ -377,10 +377,10 @@ def compress(hist, summary=None):
         time.sleep(5)
     return None
 
-def build_context(mem_hist, summary=None):
+def build_context(mem_hist, summaries=None):
     ctx = [{"role": "system", "content": SYSTEM}]
-    if summary:
-        ctx.append({"role": "user", "content": summary})
+    for s in summaries or []:
+        ctx.append({"role": "user", "content": s})
     return ctx + mem_hist
 
 def RUN(args):
@@ -455,7 +455,7 @@ def main():
 
     mem_hist = []
     signal.signal(signal.SIGUSR1, _stop)
-    summary = None
+    summaries = []
     need_compress = False
     print("新终端=新对话 | Ctrl+Space=暂停")
 
@@ -482,15 +482,16 @@ def main():
                     if last_u == 0:
                         need_compress = False
                     else:
-                        ns = compress(mem_hist[:last_u], summary)
+                        ns = compress(mem_hist[:last_u], summaries)
                         if ns is None:
                             need_compress = False
                             break
-                        summary, mem_hist = ns, mem_hist[last_u:]
+                        summaries.append(ns)
+                        mem_hist = mem_hist[last_u:]
                         need_compress = False
                         retry = 0
                         print("\n[已压缩，继续]", flush=True)
-                resp = llm(build_context(mem_hist, summary))
+                resp = llm(build_context(mem_hist, summaries))
                 if resp is None:
                     retry += 1
                     if retry > 10:
