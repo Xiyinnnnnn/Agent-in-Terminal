@@ -116,7 +116,7 @@ DANGER_BL = [
     "rm", "sudo rm",
     "dd", "mkfs", "format", "wipe", "wipefs", "shred", "blkdiscard",
     "fdisk", "parted", "pvcreate", "vgremove", "lvremove",
-    "dd if=/dev/zero", "dd if=/dev/urandom", "> /dev/sd",
+    "dd if=/dev/zero", "dd if=/dev/urandom", "> /dev/sd", "> /dev/nvme", "> /dev/vd", "> /dev/mmcblk",
     "sudo dd", "sudo mkfs",
     "chmod -R 777",
     ":(){", ":(){:|:&};:",
@@ -141,7 +141,7 @@ def _split_segs(c):
         elif ch in "\"'":
             q = ch
             buf += ch
-        elif ch in ";&|":
+        elif ch in ";&|\n":
             segs.append(buf)
             buf = ""
         else:
@@ -236,11 +236,6 @@ def extract_tool_call(content):
                 return {"command": str(d["command"]).strip(), "explain": "正文调用捕获", "dangerous": bool(d.get("dangerous"))}
         except Exception:
             pass
-    m2 = re.search(r"(?:" + _ALIAS_RE + r")\s*[:：]\s*[\"'`]?([^\"'`\n，。；;、]+)", content, re.I)
-    if m2:
-        cmd = m2.group(1).strip()
-        if cmd:
-            return {"command": cmd, "explain": "正文调用捕获", "dangerous": False}
     return None
 
 def _machine_seed():
@@ -384,6 +379,7 @@ def _img(q):
     return c
 
 def compress(hist, summaries=None):
+    hist = sanitize_hist(hist)
     msgs = []
     for s in summaries or []:
         msgs.append({"role": "user", "content": s})
