@@ -379,11 +379,25 @@ def compress(hist, summaries=None):
         time.sleep(5)
     return None
 
+def sanitize_hist(h):
+    out, i, n = [], 0, len(h)
+    while i < n:
+        m = h[i]
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            j, k = i + 1, 0
+            while j < n and h[j].get("role") == "tool":
+                k += 1; j += 1
+            if k < len(m["tool_calls"]):
+                i = j; continue
+            out.extend(h[i:j]); i = j; continue
+        out.append(m); i += 1
+    return out
+
 def build_context(mem_hist, summaries=None):
     ctx = [{"role": "system", "content": SYSTEM}]
     for s in summaries or []:
         ctx.append({"role": "user", "content": s})
-    return ctx + mem_hist
+    return ctx + sanitize_hist(mem_hist)
 
 def RUN(args):
     cmd = args.get("command", "").strip()
@@ -400,6 +414,7 @@ def RUN(args):
         tty.setcbreak(fd)
     try:
         p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        global _proc; _proc = p
         out, err, dl = "", "", time.time() + 600
         while p.poll() is None:
             if time.time() > dl:
@@ -427,6 +442,8 @@ def RUN(args):
     finally:
         if old:
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        if _proc is not None:
+            _kp(_proc); _proc = None
 TOOL_IMPL = {"RUN": RUN, "run_terminal": RUN}
 _IMPL_LOWER = {k.lower(): v for k, v in TOOL_IMPL.items()}
 
@@ -447,7 +464,19 @@ def welcome():
 class _StopLoop(Exception):
     pass
 
+def _kp(p):
+    try:
+        if p.poll() is None:
+            os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+    except Exception:
+        pass
+
+_proc = None
+
 def _stop(s, f):
+    if _proc is not None:
+        _kp(_proc)
     raise _StopLoop
 
 def main():
@@ -463,7 +492,7 @@ def main():
 
     while True:
         try:
-            q = input("\n你> ").strip()
+            q = input("\n你> ").replace("\x00", "").strip()
         except _StopLoop:
             continue
         except (EOFError, KeyboardInterrupt):
