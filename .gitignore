@@ -222,3 +222,10 @@ key.bin
 secrets/
 ocr_models/
 *.bak*
+
+# ---- Channel Manager（runtime/inbox 不入库）----
+channel/config.json
+channel/runtime/
+channel/inbox/
+*.session
+*.token
