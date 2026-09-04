@@ -135,3 +135,13 @@ curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/term_ag
 ## LICENSE
 
 MIT
+
+## Channel Manager（微信/QQ 遥控）
+
+`channel/` 为现有 Agent 增加一层极轻量 Channel Manager：让本 Agent 能被 **微信私聊 / QQ私聊 / QQ群@** 遥控。
+
+- 不改 `term_agent.py` 本体；每条独立消息按需新建一个 Agent 进程（并发不串会话）。
+- Agent 如何向聊天发消息/文件：用 Shell 调 `channel-reply "文本"` / `channel-send-file "/绝对路径"`。
+- 启动：`python3 channel/manager.py --serve`（默认 local 适配器，测试用 `--test "消息" [附件路径...]`）。
+- 真实微信/QQ：在 `channel/config.json` 的 `wechat`/`qq` 配好 iLink / OneBot(NapCat/Lagrange) 端点后，把 `adapters` 改为 `["qq"]` 或 `["wechat"]`。
+- 详见 `channel/config.example.json` 与 `channel/README`? 否，见各 adapter 文件头注释。
