@@ -12,7 +12,7 @@ QQ Adapter —— OneBot11/NapCat/Lagrange 方向，零第三方依赖：
   "webhook_path": "/onebot"                     # 反向事件路径
 }
 """
-import json, os, re, urllib.request, urllib.error, threading
+import json, os, re, sys, urllib.request, urllib.error, threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from .base import BaseAdapter
 from . import _cq
@@ -21,17 +21,55 @@ class _Handler(BaseHTTPRequestHandler):
     adapter = None
     def log_message(self, *a): pass
     def do_POST(self):
-        ln = int(self.headers.get("Content-Length") or 0)
-        body = self.rfile.read(ln).decode("utf-8", "ignore")
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.end_headers()
-        self.wfile.write(b'{"status":"ok"}')
+        body = self._read_body()
+        # 先回 200，让 NapCat 上报方快速确认收到（避免其重试堆积）
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.end_headers()
+            self.wfile.write(b'{"status":"ok"}')
+        except Exception:
+            pass
         try:
             ev = json.loads(body)
-        except Exception:
+        except Exception as e:
+            sys.stderr.write(f"[QQAdapter] 事件 body 解析失败: {e} body={body[:200]!r}\n")
             return
         threading.Thread(target=self.adapter._on_event, args=(ev,), daemon=True).start()
+
+    def _read_body(self):
+        """兼容两种上报编码：
+        - Content-Length（curl 等常规 POST）
+        - Transfer-Encoding: chunked（NapCat 真实上报无 Content-Length，只读 CL 会 ln=0 → 空 body → 事件被静默丢弃）
+        """
+        import sys as _sys
+        try:
+            ln = self.headers.get("Content-Length")
+            if ln:
+                try:
+                    return self.rfile.read(int(ln))
+                except Exception:
+                    return b""
+            if (self.headers.get("Transfer-Encoding") or "").lower() == "chunked":
+                data = b""
+                while True:
+                    line = self.rfile.readline()
+                    if not line:
+                        break
+                    try:
+                        size = int(line.split(b";")[0].strip(), 16)
+                    except Exception:
+                        break
+                    if size <= 0:
+                        self.rfile.readline()  # 吃掉结尾空行
+                        break
+                    data += self.rfile.read(size)
+                    self.rfile.readline()      # 吃掉块尾 CRLF
+                return data
+            return self.rfile.read()  # 兜底：无 CL 也无 chunked，读到 EOF
+        except Exception as e:
+            _sys.stderr.write(f"[QQAdapter] 读取 body 失败: {e}\n")
+            return b""
 
 class QQAdapter(BaseAdapter):
     name = "qq"
@@ -64,12 +102,15 @@ class QQAdapter(BaseAdapter):
             if ev.get("post_type") != "message":
                 return
             mtype = ev.get("message_type")
+            print(f"[QQAdapter] 收到消息 type={mtype} uid={ev.get('user_id')} "
+                  f"gid={ev.get('group_id','-')} mid={ev.get('message_id')}", flush=True)
             raw = self._segments_str(ev.get("message") or [])
             if mtype == "private":
                 uid = str(ev.get("user_id") or ev.get("sender", {}).get("user_id"))
                 text = _cq.strip_cq(raw, keep_at=False)
                 if not (text.strip() or self._attachments(ev)):
                     return
+                print(f"[QQAdapter] 触发任务 text='{text[:80]}' conv=private:{uid}", flush=True)
                 self.receive({
                     "platform": "qq",
                     "conversation_id": f"private:{uid}",
@@ -159,6 +200,7 @@ class QQAdapter(BaseAdapter):
             self._send("send_private_msg", {"user_id": int(cid[8:]), "message": text})
         else:
             raise RuntimeError(f"未知会话类型 {cid}")
+        print(f"[QQAdapter] 回复成功 conv={cid} text='{str(text)[:60]}'", flush=True)
 
     def send_file(self, msg, path):
         if path.lower().endswith((".jpg", ".jpeg", ".png", ".gif", ".webp")):

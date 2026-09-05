@@ -92,6 +92,31 @@ def _is_manager(pid):
     except Exception:
         return False
 
+def _find_manager_proc():
+    """遍历 /proc 找真正的 channel manager 进程。
+    只认 python 解释器执行且 argv 含 channel/manager.py 的进程，
+    绝不匹配 shell（否则 pgrep -f 会自匹配 'manager.py' 字符串造成误判）。"""
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
+        try:
+            with open(f"/proc/{name}/cmdline", "rb") as f:
+                raw = f.read().decode("utf-8", "ignore").replace("\x00", " ")
+        except Exception:
+            continue
+        parts = raw.split()
+        if not parts:
+            continue
+        exe = os.path.basename(parts[0]).lower()
+        if "python" not in exe and "pypy" not in exe:
+            continue
+        args = [a for a in parts[1:] if not a.startswith("-") and "/" in a]
+        if not any(a.endswith("manager.py") and "channel" in a for a in args):
+            continue
+        if "--serve" in parts or "--test" in parts:
+            return int(name)
+    return None
+
 def channel_status():
     """返回 (state, info)；state ∈ running/stopped/stale"""
     pid = _read_pid()
@@ -102,16 +127,11 @@ def channel_status():
         return "stale", {"pid": pid, "reason": "PID 文件指向非 manager 进程"}
     if pid:
         return "stale", {"pid": pid, "reason": "残留 PID（进程已退出）"}
-    # 没有 pid 文件，再兜底找一次（例如手动起的 manager，cmdline 可能是裸 manager.py --serve）
+    # 没有 pid 文件，再兜底找一次（例如手动起的 manager / PID 文件被清）
     try:
-        out = subprocess.run(["pgrep", "-f", "manager.py --serve"],
-                             capture_output=True, text=True).stdout.strip()
-        for ln in out.splitlines():
-            p = int(ln)
-            if p == os.getpid():
-                continue
-            if _is_manager(p):
-                return "running", {"pid": p, "note": "无PID文件但检测到运行中的 manager"}
+        m = _find_manager_proc()
+        if m and m != os.getpid():
+            return "running", {"pid": m, "note": "无PID文件但检测到运行中的 manager"}
     except Exception:
         pass
     return "stopped", {}

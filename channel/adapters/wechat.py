@@ -129,7 +129,14 @@ class WechatAdapter(BaseAdapter):
         if cl is None:
             raise RuntimeError("微信未登录或账号不存在，请先在控制中心执行「微信登录」")
         ct = self._ctx_token.get(sid)
-        cl.send_text(sid, text, context_token=ct)
+        import time as _t
+        _t0 = _t.time()
+        try:
+            cl.send_text(sid, text, context_token=ct)
+        except Exception as e:
+            print(f"[WechatAdapter] send_text 失败 sid={sid} len={len(text)} err={e!r}", file=sys.stderr, flush=True)
+            raise
+        print(f"[WechatAdapter] send_text 成功 sid={sid} len={len(text)} 耗时={_t.time()-_t0:.2f}s", file=sys.stderr, flush=True)
 
     def send_file(self, msg, path):
         # 文本回复已可用；文件上传需 CDN+AES，暂返回明确提示由 Agent 转文字/链接

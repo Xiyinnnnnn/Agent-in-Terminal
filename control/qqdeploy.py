@@ -244,25 +244,73 @@ def qq_ensure(progress=print):
     return {"ok": True}
 
 # ---------------- 启停 ----------------
-def qq_stop():
-    pid = _read_pid()
-    if not pid:
-        return True
-    if _proc_running(pid):
+def _qq_running_pids():
+    """返回真正在跑的 QQ(NapCat) 主进程 PID 列表。
+    判定：cmdline 首 token basename=qq + 含 --no-sandbox + 非 --type= 子进程。
+    （xvfb-run sh / zygote / node utility 均天然排除，绝不 pkill 自匹配）"""
+    out = []
+    for name in os.listdir("/proc"):
+        if not name.isdigit():
+            continue
         try:
-            # 杀整个进程组（xvfb-run + qq + worker），避免孤儿
-            os.killpg(pid, signal.SIGTERM)
+            with open("/proc/%s/cmdline" % name, "rb") as f:
+                raw = f.read().decode("utf-8", "ignore").replace("\x00", " ")
+        except Exception:
+            continue
+        parts = raw.split()
+        if not parts:
+            continue
+        if os.path.basename(parts[0]) != "qq":
+            continue
+        if "--no-sandbox" not in parts:
+            continue
+        if any(x.startswith("--type=") for x in parts):
+            continue
+        out.append(int(name))
+    return out
+
+def _qq_pgids():
+    """返回 QQ 主进程所在进程组 ID（去重）。用于 killpg 精确整组清理。"""
+    pgs = set()
+    for pid in _qq_running_pids():
+        try:
+            with open("/proc/%d/stat" % pid, encoding="utf-8") as f:
+                s = f.read()
+            m = re.search(r"\)\s+\S+\s+\d+\s+(\d+)", s)
+            if m:
+                pgs.add(int(m.group(1)))
+        except Exception:
+            pass
+    return sorted(pgs)
+
+def qq_stop():
+    # 1) PID 文件指向存活进程 → 直接用其 pid（组长 xvfb sh）
+    pid = _read_pid()
+    killed = []
+    if pid and _proc_running(pid):
+        try:
+            os.killpg(pid, signal.SIGTERM); killed.append(pid)
         except OSError:
-            try: os.kill(pid, signal.SIGTERM)
+            try: os.kill(pid, signal.SIGTERM); killed.append(pid)
             except OSError: pass
-        for _ in range(20):
-            if not _proc_running(pid): break
-            time.sleep(0.25)
-        if _proc_running(pid):
-            try: os.killpg(pid, signal.SIGKILL)
+    # 2) 兜底：PID 文件失效/缺失 → 扫真实进程组（防重复清残留）
+    for pg in _qq_pgids():
+        if pg not in killed:
+            try: os.killpg(pg, signal.SIGTERM); killed.append(pg)
             except OSError:
-                try: os.kill(pid, signal.SIGKILL)
+                try: os.kill(pg, signal.SIGTERM)
                 except OSError: pass
+    for _ in range(20):
+        if not _qq_running_pids() and not (pid and _proc_running(pid)):
+            break
+        time.sleep(0.25)
+    # 3) 仍存活 → 升级 KILL
+    for pg in killed:
+        try:
+            os.killpg(pg, signal.SIGKILL)
+        except OSError:
+            try: os.kill(pg, signal.SIGKILL)
+            except OSError: pass
     try: os.remove(PID_FILE)
     except OSError: pass
     return True
@@ -276,12 +324,12 @@ def _boot_cmd(need_scan, uin):
 
 def qq_start(need_scan=False, progress=print):
     """启动 NapCat。need_scan=True 且已登录 → 快速登录；未登录 → 打 QR。
-    返回 (ok, proc)。"""
-    dep = qq_deploy_status()
-    if dep["running"]:
-        progress("  NapCat 已在运行 (PID %s)。" % dep["pid"])
+    防重复：启动前 /proc 精确扫描真 QQ 主进程，存在即拒绝再起（不依赖 PID 文件）。"""
+    alive = _qq_running_pids()
+    if alive:
+        progress("  NapCat 已在运行 (PID %s)。如需重启请先「停止 QQ」。" % alive[0])
         return True, None
-    uin = dep["uin"]
+    uin = _effective_uin()
     cmd = _boot_cmd(need_scan, uin)
     os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
     env = dict(os.environ)
@@ -292,7 +340,6 @@ def qq_start(need_scan=False, progress=print):
                                 env=env, start_new_session=True)
     with open(PID_FILE, "w") as f:
         f.write(str(proc.pid))
-    # 给 NapCat 一点时间确认没崩
     time.sleep(4)
     if not _proc_running(proc.pid):
         tail = ""
@@ -383,9 +430,10 @@ def _scan_latest_qr_url():
 def qq_start_and_qr(need_scan=True, progress=print):
     """
     control 入口：
-      已登录 → 快速登录启动（免扫码，自动 -q <uin>）
+      已登录(数据目录有真实登录态) → 快速登录（免扫码，自动 -q <uin>）
       未登录 → 启动并解析 NapCat 二维码 URL → segno 直接渲染到终端 → 等手机 QQ 扫码
-    阻塞等待登录成功（多重判定：登录态目录 / API 探测），返回 bool。
+    阻塞等待登录成功。成功判定 = NapCat 正向 API get_login_info 返回真实 QQ 号
+    （绝不把残留 config 反查当登录成功，否则会误报成功 → 二维码永不显示）。
     """
     dep = qq_deploy_status()
     if dep["logged_in"] and dep["uin"]:
@@ -397,27 +445,27 @@ def qq_start_and_qr(need_scan=True, progress=print):
         ok, proc = qq_start(need_scan=False, progress=progress)
         if not ok: return False
         progress("  正在准备二维码…")
-    # ---- 等待登录成功 ----
+    # ---- 等待登录成功（唯一真判定：NapCat API get_login_info 就绪）----
     deadline = time.time() + 180
     shown_url = None
     while time.time() < deadline:
-        uin = _effective_uin()
-        if uin:
-            qq_write_channel_cfg(uin)
-            progress("  ● QQ 登录成功：%s" % uin)
+        uid = _api_login_uin()
+        if uid:
+            qq_write_channel_cfg(uid)
+            progress("  ● QQ 登录成功：%s" % uid)
             return True
         if proc is not None and not _proc_running(proc.pid):
             progress("  NapCat 进程已退出，登录流程中断。")
             return False
-        if not _qq_data_has_login():
-            # 未登录/扫码阶段：监视日志里的二维码 URL，变化即重新渲染(约2分钟自动刷新)
-            url = _scan_latest_qr_url()
-            if url and url != shown_url:
-                if shown_url:
-                    progress("")
-                    progress("  二维码已刷新，请用手机 QQ 扫上方最新二维码。")
-                shown_url = url
-                _render_qr(url, progress=progress)
+        # 未登录/扫码阶段：监视日志里的二维码 URL，变化即重新渲染(约2分钟自动刷新)
+        # 快速登录若退化为弹码也会在此兜底渲染
+        url = _scan_latest_qr_url()
+        if url and url != shown_url:
+            if shown_url:
+                progress("")
+                progress("  二维码已刷新，请用手机 QQ 扫上方最新二维码。")
+            shown_url = url
+            _render_qr(url, progress=progress)
         time.sleep(1.5)
     progress("  等待登录超时（3 分钟）。NapCat 仍在运行，可稍后手动扫码或重试。")
     return False
