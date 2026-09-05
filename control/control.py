@@ -5,7 +5,8 @@ Agent-in-Terminal Channel 傻瓜控制中心（零第三方依赖，标准库 TU
 
 职责（只做控制层，不碰 Agent Core / Channel 核心逻辑）：
   - start / stop / status  Channel Manager（PID 文件方式，防重复启动）
-  - 微信 / QQ 登录状态查看与接入指引（登录协议仍归各自 Adapter）
+  - 2=微信登录 3=QQ登录：真实扫码（微信=自研 iLink QR；QQ=自动准备官方 NapCat + QR）
+  - 登录态持久化于 HOME，重启免重扫
   - 多模态 ON/OFF（持久化到现有 channel/config.json，只影响新任务）
   - 查看最近日志
   - 桌面统一入口：Agent Channel
@@ -25,6 +26,10 @@ PID_FILE = os.path.join(LOG_DIR, "channel.pid")
 STATE_FILE = os.path.join(LOG_DIR, "channel.state.json")     # 运行态元数据（PID/启动时间/适配器）
 LOG_FILE = os.path.join(LOG_DIR, "channel.log")
 OUTBOX_LOG = os.path.join(LOG_DIR, "outbox-local.log")
+
+# 让 control 可直接 import channel 下的 ilink（微信登录）
+if CH_DIR and CH_DIR not in sys.path:
+    sys.path.insert(0, CH_DIR)
 
 GREEN, YELLOW, RED, CYAN, BOLD, NC = "\033[32m", "\033[33m", "\033[31m", "\033[36m", "\033[1m", "\033[0m"
 
@@ -97,13 +102,16 @@ def channel_status():
         return "stale", {"pid": pid, "reason": "PID 文件指向非 manager 进程"}
     if pid:
         return "stale", {"pid": pid, "reason": "残留 PID（进程已退出）"}
-    # 没有 pid 文件，再兜底找一次（例如手动起的 manager）
+    # 没有 pid 文件，再兜底找一次（例如手动起的 manager，cmdline 可能是裸 manager.py --serve）
     try:
-        out = subprocess.run(["pgrep", "-f", "channel/manager.py --serve"],
+        out = subprocess.run(["pgrep", "-f", "manager.py --serve"],
                              capture_output=True, text=True).stdout.strip()
-        if out:
-            p = int(out.splitlines()[0])
-            return "running", {"pid": p, "note": "无PID文件但检测到运行中的 manager"}
+        for ln in out.splitlines():
+            p = int(ln)
+            if p == os.getpid():
+                continue
+            if _is_manager(p):
+                return "running", {"pid": p, "note": "无PID文件但检测到运行中的 manager"}
     except Exception:
         pass
     return "stopped", {}
@@ -124,7 +132,7 @@ def tail_file(path, n=40):
     except Exception:
         return "(暂无日志)"
 
-# ---------------- 微信 / QQ 登录状态 ----------------
+# ---------------- 微信 / QQ 登录状态（真实凭证判定） ----------------
 def _port_open(host, port, timeout=0.5):
     try:
         s = socket.create_connection((host, int(port)), timeout=timeout)
@@ -133,60 +141,79 @@ def _port_open(host, port, timeout=0.5):
     except OSError:
         return False
 
-def adapter_login_state():
-    """登录状态判定：适配器配置存在 + 对应后端可达。
-    QQ:    需要外部 OneBot 实现(NapCat/Lagrange)，webhook 端口默认 18086，正向 API 默认 3000
-    微信:  需要外部 iLink/微信事件推送，webhook 端口默认 18087
-    控制中心只做判定与接入指引；不重新实现登录协议。"""
+def _wx_accounts():
+    """微信已登录账号列表（持久目录）。"""
+    try:
+        from ilink import accounts as acc
+        return acc.list_account_ids()
+    except Exception:
+        return []
+
+def wx_login_state():
+    """微信：持久凭证目录存在账号=已登录。"""
+    ids = _wx_accounts()
+    if ids:
+        return {"level": "ok", "accounts": ids}
+    return {"level": "none", "hint": "未登录"}
+
+def _qq_data_has_login():
+    """QQ 登录态检测：
+    ① NTQQ 数据目录存在 nt_qq_<uin>（扫码登录后生成）
+    ② NapCat 配置目录存在 onebot11_<uin>.json
+    """
+    import glob
+    qq_conf = os.path.expanduser("~/.config/QQ")
+    if os.path.isdir(qq_conf):
+        try:
+            hits = glob.glob(os.path.join(qq_conf, "nt_qq_*"))
+            if hits: return True
+        except Exception: pass
+    napcat = os.path.expanduser("~/Napcat/opt/QQ/resources/app/app_launcher/napcat/config")
+    if os.path.isdir(napcat):
+        try:
+            hits = glob.glob(os.path.join(napcat, "onebot11_*.json"))
+            if hits: return True
+        except Exception: pass
+    return False
+
+def _qq_process_running():
+    # 官方 AppImage runtime 形态：.../agent-terminal/qq/runtime/qq --no-sandbox
+    try:
+        out = subprocess.run(["pgrep", "-f", "qq/runtime/qq --no-sandbox"],
+                             capture_output=True, text=True).stdout.strip()
+        if out:
+            return True
+        out = subprocess.run(["pgrep", "-f", "napcat.mjs"],
+                             capture_output=True, text=True).stdout.strip()
+        return bool(out)
+    except Exception:
+        return False
+
+def _qq_deployed():
+    base = os.path.expanduser("~/.local/share/agent-terminal/qq")
+    qq = os.path.join(base, "runtime/qq")
+    nc = os.path.join(base, "runtime/resources/app/loadNapCat.js")
+    return os.path.exists(qq) and os.path.exists(nc)
+
+def qq_login_state():
+    """QQ：官方 AppImage 部署 + 登录态 + 进程 三维判定。"""
     cfg = load_config()
-    state = {}
-    # ---- QQ ----
     qq = cfg.get("qq") or {}
-    qq_api = (qq.get("onebot_http") or "").strip()
-    qq_port = (qq.get("webhook_local") or "127.0.0.1:18086").rsplit(":", 1)[-1]
-    if qq.get("bot_qq") and qq_api and _port_open("127.0.0.1", qq_port):
-        state["qq"] = {"level": "ok", "bot": qq.get("bot_qq"), "api": qq_api}
-    elif qq.get("bot_qq") and qq_api:
-        state["qq"] = {"level": "half", "bot": qq.get("bot_qq"), "api": qq_api,
-                       "hint": "已配置，但 OneBot 后端(NapCat/Lagrange)未在本机 webhook 端口监听"}
-    else:
-        state["qq"] = {"level": "none", "hint": "未配置 bot_qq / onebot_http"}
-    # ---- 微信 ----
-    wx = cfg.get("wechat") or {}
-    wx_ilk = (wx.get("ilk") or "").strip()
-    wx_port = (wx.get("webhook_local") or "127.0.0.1:18087").rsplit(":", 1)[-1]
-    if wx_ilk and wx.get("access_token") and _port_open("127.0.0.1", wx_port):
-        state["wechat"] = {"level": "ok", "ilk": wx_ilk}
-    elif wx_ilk and wx.get("access_token"):
-        state["wechat"] = {"level": "half", "ilk": wx_ilk,
-                           "hint": "已配置，但微信 iLink/事件推送未到达本机 webhook 端口"}
-    else:
-        state["wechat"] = {"level": "none", "hint": "未配置 wechat.ilk / access_token"}
-    return state
+    deployed = _qq_deployed()
+    has_login = _qq_data_has_login() or bool(qq.get("bot_qq"))
+    running = _qq_process_running()
+    if deployed and has_login and running:
+        return {"level": "ok", "deployed": True, "running": True}
+    if deployed and has_login and not running:
+        return {"level": "half", "deployed": True, "has_login": True,
+                "running": False, "hint": "已登录 → 选 [3] 一键快速登录(免扫码)"}
+    if deployed and not has_login:
+        return {"level": "half", "deployed": True, "has_login": False,
+                "running": running, "hint": "NapCat 已就绪 → 选 [3] 扫码登录"}
+    return {"level": "none", "hint": "QQ 未部署 → 选 [3] 自动部署+扫码"}
 
-def _wx_login_guide():
-    print()
-    print(c("微信接入说明（登录协议属于 WeChat Adapter，控制中心只负责指引）", BOLD))
-    print("  微信通道采用 iLink / 微信客服消息方向，需你在微信侧完成：")
-    print("   1. 微信开放平台/企业微信创建应用，获得 access_token")
-    print("   2. 配置事件推送 → 指向本机 webhook（默认 127.0.0.1:18087/ilink）")
-    print("   3. 把应用信息填入 repo/channel/config.json 的 wechat 段：")
-    print('      { "ilk": "https://iLink端点/api/cgi-bin/message",')
-    print('        "access_token": "xxx",')
-    print('        "webhook_local": "127.0.0.1:18087", "webhook_path": "/ilink" }')
-    print(c("  填写后回到本界面选 [2] 刷新即可看到「● 已配置」；真实可用还需微信侧能推送到本机。", YELLOW))
-
-def _qq_login_guide():
-    print()
-    print(c("QQ 接入说明（登录协议属于 QQ Adapter，控制中心只负责指引）", BOLD))
-    print("  QQ 通道走 OneBot11 反向HTTP，需要先跑起一个 OneBot 实现（NapCat 或 Lagrange）：")
-    print("   1. 安装并登录 NapCat/Lagrange（扫码登录 QQ，登录态由它持久保存）")
-    print("   2. 开启 反向HTTP 上报 → 指向 本机 webhook（默认 127.0.0.1:18086/onebot）")
-    print("   3. 记下正向 HTTP API 地址（默认 http://127.0.0.1:3000）")
-    print("   4. 把信息填入 repo/channel/config.json 的 qq 段：")
-    print('      { "bot_qq": "你的QQ号", "onebot_http": "http://127.0.0.1:3000",')
-    print('        "webhook_local": "127.0.0.1:18086", "webhook_path": "/onebot" }')
-    print(c("  填写并跑起后端后回本界面选 [2] 刷新即可看到「● 已登录」。", YELLOW))
+def adapter_login_state():
+    return {"qq": qq_login_state(), "wechat": wx_login_state()}
 
 # ---------------- start / stop ----------------
 def start_channel():
@@ -302,12 +329,14 @@ def render():
     # 登录状态行
     qq_lv = qq.get("level", "none")
     wx_lv = wx.get("level", "none")
-    if qq_lv == "ok": qq_line = c("● 已登录", GREEN) + c(f"  bot={qq.get('bot')}", NC)
-    elif qq_lv == "half": qq_line = c("! 已配置/后端未连", YELLOW)
-    else: qq_line = c("○ 未接入", RED)
-    if wx_lv == "ok": wx_line = c("● 已配置", GREEN)
-    elif wx_lv == "half": wx_line = c("! 已配置/未到达", YELLOW)
-    else: wx_line = c("○ 未接入", RED)
+    if qq_lv == "ok": qq_line = c("● 已登录", GREEN)
+    elif qq_lv == "half":
+        if qq.get("has_login"): qq_line = c("● 已登录 · 未运行", YELLOW)   # 选[3]快速登录
+        else: qq_line = c("○ 未登录 · 已就绪", YELLOW)                     # 选[3]扫码登录
+    else: qq_line = c("○ 未登录", RED)
+    if wx_lv == "ok": wx_line = c("● 已登录", GREEN)
+    elif wx_lv == "half": wx_line = c("! 异常", YELLOW)
+    else: wx_line = c("○ 未登录", RED)
     mm_line = c("● ON", GREEN) if mm else c("○ OFF", RED)
 
     w = 56
@@ -329,9 +358,9 @@ def render():
     print(c("╠" + "═"*(w-2) + "╣", CYAN))
     menu = [
         ("1", "启动 / 停止 Channel"),
-        ("2", "微信 / QQ 登录 (查看/指引)"),
-        ("3", "多模态 ON / OFF"),
-        ("4", "查看最近日志"),
+        ("2", "微信登录"),
+        ("3", "QQ登录"),
+        ("4", "多模态 ON / OFF"),
         ("5", "刷新状态"),
         ("0", "退出"),
     ]
@@ -340,6 +369,7 @@ def render():
     print(c("╚" + "═"*(w-2) + "╝", CYAN))
     if st != "running":
         print(c("提示：Channel 未运行 → 按 [1] 启动。启动后微信/QQ 消息才会触发 Agent。", YELLOW))
+    print(c("按数字直接进入对应功能：未登录则直接拉二维码，已登录可 [r] 重新登录。", NC))
     print()
 
 def _pause():
@@ -347,6 +377,23 @@ def _pause():
         input(c("按回车返回…", CYAN))
     except EOFError:
         pass
+
+def _done(ok=True):
+    """登录流程收尾：成功 → 短暂提示后自动回主页面（用户无需再按键）；
+    失败/未完成 → 保留按回车返回（避免错误信息一闪而过）。"""
+    if not ok:
+        _pause(); return
+    print()
+    sys.stdout.write(c("● 操作完成，", GREEN) + c("2.5 秒后自动返回主页面…", CYAN))
+    sys.stdout.flush()
+    try:
+        for _ in range(5):
+            time.sleep(0.5)
+            sys.stdout.write("\r  " + c("即将自动返回主页面…  ", CYAN))
+            sys.stdout.flush()
+    except KeyboardInterrupt:
+        pass
+    print()
 
 def act_start_stop():
     st, info, *_ = status_line()
@@ -356,29 +403,112 @@ def act_start_stop():
         start_channel()
     _pause()
 
-def act_login():
+def _enable_adapter(name):
+    """把 name 写进 config.json 的 adapters（若未启用）。"""
+    cfg = load_config()
+    ads = cfg.get("adapters") or []
+    if name not in ads:
+        cfg["adapters"] = ads + [name]
+        save_config(cfg)
+    return cfg
+
+def act_wx_login():
+    """2. 微信登录：已登录→提示[r]重登；未登录→直接拉 QR 扫码。"""
     st, info, qq, wx, mm = status_line()
-    print()
-    print(c("微信 / QQ 登录状态", BOLD))
-    wx_lv = wx.get("level", "none")
-    qq_lv = qq.get("level", "none")
-    print(f"  微信：{'● 已配置(接收可达)' if wx_lv=='ok' else ('! 已配置/推送未到达' if wx_lv=='half' else '○ 未接入')}")
-    if wx_lv == "half" and wx.get("hint"): print(c("        " + wx["hint"], YELLOW))
-    print(f"  QQ ：{'● 已登录(后端可达)' if qq_lv=='ok' else ('! 已配置/后端未连' if qq_lv=='half' else '○ 未接入')}")
-    if qq_lv == "half" and qq.get("hint"): print(c("        " + qq["hint"], YELLOW))
-    print(c("  ─────────────────────────────────", NC))
-    print("  登录态由各自 Adapter / 外部后端负责，控制中心不保存密码或 token：")
-    print("  · 微信登录态 → iLink 应用（首次扫码授权由微信侧完成）")
-    print("  · QQ 登录态  → NapCat/Lagrange 扫码登录，登录态由它们持久保存")
-    while True:
+    if wx.get("level") == "ok":
         print()
-        print("  [w] 微信接入指引    [q] QQ 接入指引    [r] 刷新    [0] 返回")
+        print(c("微信已登录。", GREEN), "账号:", ", ".join(wx.get("accounts") or []))
+        print("  [r] 重新登录（重新扫码）    [0] 返回")
         k = input("  选择: ").strip().lower()
-        if k in ("w", "微信"): _wx_login_guide()
-        elif k in ("q", "qq"): _qq_login_guide()
-        elif k == "r": return act_login()
-        elif k in ("0", ""): return
-        else: print(c("  无效输入。", YELLOW))
+        if k != "r":
+            return
+        print(c("  重新登录将覆盖当前微信账号的凭证。开始…", YELLOW))
+    print()
+    print(c("正在启动微信扫码登录…", CYAN))
+    print("  （iLink 通道 · 自动拉取二维码 → 手机微信扫码 → 凭证自动保存，重启免重扫）")
+    print()
+    try:
+        from ilink import weixin_bot as wxbot
+        ok, res = wxbot.do_qr_login(total_timeout_s=480)
+    except Exception as e:
+        print(c(f"  微信登录启动失败: {e}", RED))
+        _pause(); return
+    if ok:
+        print()
+        print(c("● 微信登录成功！", GREEN))
+        print("  账号:", res.get("saved_account_id") or res.get("account_id") or "(见日志)")
+        if res.get("message"): print("  " + res["message"])
+        # 自动启用 wechat 适配器 + 重启 Channel 使轮询生效
+        try:
+            _enable_adapter("wechat")
+        except Exception as e:
+            print(c(f"  写入配置失败: {e}", RED))
+        print()
+        print(c("提示：已自动启用「微信」适配器。若 Channel 正在运行，重启后开始收微信消息。", YELLOW))
+    else:
+        msg = res.get("message") if isinstance(res, dict) else str(res)
+        if isinstance(res, dict) and res.get("alreadyConnected"):
+            print(c("  " + msg, GREEN))
+            _enable_adapter("wechat")
+        else:
+            print(c("  登录未完成: " + str(msg), RED))
+    _done(ok)
+
+def act_qq_login():
+    """3. QQ登录：官方 AppImage 自动部署 → 扫码/快速登录 → ●已登录。"""
+    st, info, qq, wx, mm = status_line()
+    qs = qq.get("level")
+    if qs == "ok":
+        print()
+        print(c("QQ 已登录且 NapCat 运行中。", GREEN))
+        print("  [r] 重新扫码登录    [s] 停止 QQ    [0] 返回")
+        k = input("  选择: ").strip().lower()
+        if k == "r":
+            pass  # 继续向下：先备份数据再扫新码
+        elif k == "s":
+            from qqdeploy import qq_stop
+            qq_stop()
+            print(c("QQ/NapCat 已停止。", GREEN))
+            _pause(); return
+        else:
+            return
+    print()
+    print(c("正在检查 QQ 环境…", CYAN))
+    try:
+        from qqdeploy import (qq_deploy_status, qq_ensure, qq_start_and_qr,
+                              qq_reset_login, qq_stop)
+    except Exception as e:
+        print(c(f"  QQ 部署模块缺失: {e}", RED))
+        _pause(); return
+    dep = qq_deploy_status()
+    if not dep["installed"]:
+        print(c("正在准备官方 NapCat（首次需下载 QQ + NapCat AppImage，稍候）…", CYAN))
+        r = qq_ensure()
+        if not r["ok"]:
+            print(c("  部署失败: " + r["error"], RED))
+            _pause(); return
+        print(c("  NapCat 部署完成。", GREEN))
+        dep = qq_deploy_status()
+    if qs == "ok" and dep.get("running"):
+        # [r] 重新登录：先停 → 备份数据 → 全新扫码
+        print(c("  正在停止 NapCat…", YELLOW))
+        qq_stop()
+        qq_reset_login()
+        print(c("  旧登录态已备份移除，开始全新扫码。", YELLOW))
+    print()
+    ok = qq_start_and_qr(need_scan=True)   # 内部按登录态自动分流：有态→快速登录/无态→QR
+    if ok:
+        print()
+        print(c("● QQ 登录完成，NapCat 运行中。", GREEN))
+        print("  - 免重扫：重启后选 [3] 即自动快速登录")
+        print("  - 已写入 channel/config.json (qq 适配器自动启用)")
+        print("  - 收发就绪：HTTP :3000 正向API / 事件推 127.0.0.1:18086/onebot")
+        _enable_adapter("qq")
+    else:
+        print()
+        print(c("QQ 登录流程未完成（详见上方 NapCat 输出）。", RED))
+        print(c("  NapCat 仍在运行可继续扫码；或重启后再试。", YELLOW))
+    _done(ok)
 
 def act_log():
     print()
@@ -411,11 +541,10 @@ def main():
         except (EOFError, KeyboardInterrupt):
             print("\n  再见。"); return
         if k == "1": act_start_stop()
-        elif k == "2": act_login()
-        elif k == "3":
-            toggle_multimodal(); _pause()
-        elif k == "4": act_log()
-        elif k == "5": continue
+        elif k == "2": act_wx_login()
+        elif k == "3": act_qq_login()
+        elif k == "4": toggle_multimodal(); _pause()
+        elif k == "5": continue          # 刷新=回到 render 顶部（自然循环）
         elif k == "0": print("  再见。"); return
         else: print(c("  无效输入，请按菜单数字。", YELLOW)); time.sleep(0.8)
 
