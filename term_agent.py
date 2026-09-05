@@ -91,11 +91,11 @@ TOOLS = [{
             "dangerous": {"type": "boolean", "description": "是否涉及删除/覆盖/安装/系统级修改，是则 true"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
-API_URL = "https://opencode.ai/zen/go/v1/chat/completions"
+API_URL = "https://api.deepseek.com/chat/completions"
 MODEL   = "deepseek-v4-flash"
 MAX_TOK = 524288
 MAX_OUT = 32768
-REASONING_EFFORT = "medium"
+REASONING_EFFORT = "high"
 BASE_DIR  = os.path.expanduser("~/.config/term_agent")
 KEY_FILE  = os.path.join(BASE_DIR, "key.bin")
 MEMORY_DIR = os.path.join(BASE_DIR, "memory")
