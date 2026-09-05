@@ -49,7 +49,11 @@ class QQAdapter(BaseAdapter):
     # ---- 接收 ----
     def start(self):
         _Handler.adapter = self
+        # allow_reuse_address=1：端口处于 TIME_WAIT/残留时可立即重绑，
+        # 避免"Address already in use"导致整个 manager 连带微信一起起不来
+        ThreadingHTTPServer.allow_reuse_address = True
         self._http = ThreadingHTTPServer((self.wh_host, self.wh_port), _Handler)
+        self._http.daemon_threads = True
         self._t = threading.Thread(target=self._http.serve_forever, daemon=True)
         self._t.start()
         print(f"[QQAdapter] 反向HTTP接收 {self.wh_host}:{self.wh_port}{self.wh_path} | bot={self.bot_qq or '(未设)'} | API={self.api or '(未设)'}",
@@ -168,3 +172,11 @@ class QQAdapter(BaseAdapter):
             self._send("send_private_msg", {"user_id": int(cid[8:]), "message": payload})
         else:
             raise RuntimeError(f"未知会话类型 {cid}")
+
+    def stop(self):
+        try:
+            if self._http:
+                self._http.shutdown()
+                self._http.server_close()
+        except Exception:
+            pass

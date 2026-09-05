@@ -8,6 +8,7 @@ class BaseAdapter:
         self.manager = manager
         self.start()
     def start(self): raise NotImplementedError
+    def stop(self): pass
     def receive(self, msg): self.manager.on_message(msg)
     def send_text(self, msg, text): raise NotImplementedError
     def send_file(self, msg, path): raise NotImplementedError

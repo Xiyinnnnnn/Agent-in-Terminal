@@ -383,21 +383,61 @@ class ChannelManager:
     def load_adapters(self):
         from adapters import create_adapters
         for name, ad in create_adapters(self.cfg).items():
-            if name in self.cfg.get("adapters", []):
-                self.adapters[name] = ad
+            if name not in self.cfg.get("adapters", []):
+                continue
+            try:
                 ad.attach(self)
+                self.adapters[name] = ad
+            except Exception as e:
+                # 单个适配器启动失败(如端口被占)绝不拖垮 manager 与其他通道
+                print(f"[Channel] 适配器 {name} 启动失败，已跳过（其余通道不受影响）: {e}",
+                      file=sys.stderr, flush=True)
 
     def run(self):
         self.load_adapters()
         print(f"[Channel] Manager 启动 | 适配器: {list(self.adapters)} | runtime: {self.cfg['runtime_dir']}", flush=True)
+        self._install_signal()
         self._keep_alive()
+        self._shutdown_adapters()
+
+    def _install_signal(self):
+        import signal as _sig
+        try:
+            _sig.signal(_sig.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt))
+            _sig.signal(_sig.SIGINT,  lambda *_: (_ for _ in ()).throw(KeyboardInterrupt))
+        except Exception:
+            pass
 
     def _keep_alive(self):
         try:
             while True:
                 time.sleep(60)
         except KeyboardInterrupt:
-            print("\n[Channel] 退出", flush=True)
+            print("\n[Channel] 正在退出，终止运行中的任务…", flush=True)
+            self._kill_all_tasks()
+
+    def _kill_all_tasks(self):
+        """退出时清杀所有 Agent 子进程，防止 manager 停止后任务成孤儿残留。"""
+        with self.tlock:
+            procs = [t.get("process") for t in list(self.tasks.values()) if t.get("process")]
+        killed = 0
+        for proc in procs:
+            try:
+                if proc and proc.poll() is None:
+                    os.killpg(proc.pid, signal.SIGKILL)   # Agent start_new_session=True → killpg 整组
+                    killed += 1
+            except Exception:
+                pass
+        if killed:
+            print(f"[Channel] 已终止 {killed} 个运行中的 Agent 任务", flush=True)
+        time.sleep(1)   # 给任务线程收尾时间
+
+    def _shutdown_adapters(self):
+        for name, ad in list(self.adapters.items()):
+            try:
+                ad.stop()
+            except Exception as e:
+                print(f"[Channel] 适配器 {name} 停止失败: {e}", file=sys.stderr, flush=True)
 
 def main():
     cfg = load_config()

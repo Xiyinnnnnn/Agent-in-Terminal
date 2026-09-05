@@ -137,3 +137,8 @@ class WechatAdapter(BaseAdapter):
 
     def stop(self):
         self._stop.set()
+        # 轮询线程可能正阻塞在长轮询网络请求上(最长35s+5s)，daemon 不阻塞进程退出，
+        # 这里给一个宽限让线程自然返回；超时不强等。
+        for t in self._threads:
+            try: t.join(timeout=3)
+            except Exception: pass
