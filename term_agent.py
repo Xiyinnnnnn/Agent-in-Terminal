@@ -91,8 +91,8 @@ TOOLS = [{
             "dangerous": {"type": "boolean", "description": "是否涉及删除/覆盖/安装/系统级修改，是则 true"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
-API_URL = "https://api.deepseek.com/chat/completions"
-MODEL   = "deepseek-v4-flash"
+API_URL = "http://127.0.0.1:3050/v1/chat/completions"
+MODEL   = "deepseek/deepseek-v4-flash"
 MAX_TOK = 524288
 MAX_OUT = 32768
 REASONING_EFFORT = "high"
