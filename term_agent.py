@@ -299,8 +299,13 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
             for raw in resp:
                 if old is not None:
                     r, _, _ = select.select([sys.stdin], [], [], 0)
-                    if r and os.read(fd, 1) == b"\x00":
-                        raise _StopLoop
+                    if r:
+                        ch = os.read(fd, 1)
+                        if ch == b"\x00":
+                            raise _StopLoop
+                        if ch == b"\x18":
+                            global _compress_requested
+                            _compress_requested = True
                 line = raw.decode("utf-8", "ignore").strip()
                 if not line.startswith("data:"):
                     continue
@@ -439,10 +444,15 @@ def RUN(args):
                 return "命令超时（600秒）"
             watch = [sys.stdin, p.stdout, p.stderr] if old else [p.stdout, p.stderr]
             r, _, _ = select.select(watch, [], [], 0.1)
-            if old and sys.stdin in r and os.read(fd, 1) == b"\x00":
-                os.killpg(p.pid, signal.SIGKILL)
-                p.wait()
-                raise _StopLoop
+            if old and sys.stdin in r:
+                ch = os.read(fd, 1)
+                if ch == b"\x00":
+                    os.killpg(p.pid, signal.SIGKILL)
+                    p.wait()
+                    raise _StopLoop
+                if ch == b"\x18":
+                    global _compress_requested
+                    _compress_requested = True
             if p.stdout in r:
                 out += os.read(p.stdout.fileno(), 65536).decode("utf-8", "ignore")
             if p.stderr in r:
@@ -488,6 +498,7 @@ def _kp(p):
         pass
 
 _proc = None
+_compress_requested = False
 
 def _stop(s, f):
     if _proc is not None:
@@ -495,7 +506,7 @@ def _stop(s, f):
     raise _StopLoop
 
 def main():
-    global API_KEY, mem_hist
+    global API_KEY, mem_hist, _compress_requested
     if not API_KEY:
         API_KEY = welcome()
 
@@ -503,11 +514,11 @@ def main():
     signal.signal(signal.SIGUSR1, _stop)
     summaries = []
     need_compress = False
-    print("新终端=新对话 | Ctrl+Space=暂停")
+    print("新终端=新对话 | Ctrl+Space=暂停 | Ctrl+X=压缩")
 
     while True:
         try:
-            q = input("\n你> ").replace("\x00", "").strip()
+            q = input("\n你> ").replace("\x00", "").replace("\x18", "").strip()
         except _StopLoop:
             continue
         except (EOFError, KeyboardInterrupt):
@@ -523,6 +534,9 @@ def main():
             retry = 0
             repeat = 0
             while True:
+                if _compress_requested:
+                    need_compress = True
+                    _compress_requested = False
                 if need_compress:
                     last_u = max(i for i, m in enumerate(mem_hist) if m["role"] == "user")
                     if last_u == 0:
