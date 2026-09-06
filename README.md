@@ -140,4 +140,4 @@ MIT
 
 ## Extras 扩展
 
-- **Channel Manager（微信/QQ 遥控）**：见 [channel/README.md](channel/README.md)
+- **Agent-Channel（微信/QQ 遥控通道）**：已独立为单独仓库 → [Xiyinnnnnn/Agent-Channel](https://github.com/Xiyinnnnnn/Agent-Channel)
