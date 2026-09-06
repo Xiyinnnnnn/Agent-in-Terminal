@@ -5,7 +5,7 @@ Agent-in-Terminal Channel 傻瓜控制中心（零第三方依赖，标准库 TU
 
 职责（只做控制层，不碰 Agent Core / Channel 核心逻辑）：
   - start / stop / status  Channel Manager（PID 文件方式，防重复启动）
-  - 2=微信登录 3=QQ登录：真实扫码（微信=自研 iLink QR；QQ=自动准备官方 NapCat + QR）
+  - 2=QQ登录 3=微信登录：真实扫码（微信=自研 iLink QR；QQ=自动准备官方 NapCat + QR）
   - 登录态持久化于 HOME，重启免重扫
   - 多模态 ON/OFF（持久化到现有 channel/config.json，只影响新任务）
   - 查看最近日志
@@ -226,11 +226,11 @@ def qq_login_state():
         return {"level": "ok", "deployed": True, "running": True}
     if deployed and has_login and not running:
         return {"level": "half", "deployed": True, "has_login": True,
-                "running": False, "hint": "已登录 → 选 [3] 一键快速登录(免扫码)"}
+                "running": False, "hint": "已登录 → 选 [2] 一键快速登录(免扫码)"}
     if deployed and not has_login:
         return {"level": "half", "deployed": True, "has_login": False,
-                "running": running, "hint": "NapCat 已就绪 → 选 [3] 扫码登录"}
-    return {"level": "none", "hint": "QQ 未部署 → 选 [3] 自动部署+扫码"}
+                "running": running, "hint": "NapCat 已就绪 → 选 [2] 扫码登录"}
+    return {"level": "none", "hint": "QQ 未部署 → 选 [2] 自动部署+扫码"}
 
 def adapter_login_state():
     return {"qq": qq_login_state(), "wechat": wx_login_state()}
@@ -351,8 +351,8 @@ def render():
     wx_lv = wx.get("level", "none")
     if qq_lv == "ok": qq_line = c("● 已登录", GREEN)
     elif qq_lv == "half":
-        if qq.get("has_login"): qq_line = c("● 已登录 · 未运行", YELLOW)   # 选[3]快速登录
-        else: qq_line = c("○ 未登录 · 已就绪", YELLOW)                     # 选[3]扫码登录
+        if qq.get("has_login"): qq_line = c("● 已登录 · 未运行", YELLOW)   # 选[2]快速登录
+        else: qq_line = c("○ 未登录 · 已就绪", YELLOW)                     # 选[2]扫码登录
     else: qq_line = c("○ 未登录", RED)
     if wx_lv == "ok": wx_line = c("● 已登录", GREEN)
     elif wx_lv == "half": wx_line = c("! 异常", YELLOW)
@@ -378,10 +378,11 @@ def render():
     print(c("╠" + "═"*(w-2) + "╣", CYAN))
     menu = [
         ("1", "启动 / 停止 Channel"),
-        ("2", "微信登录"),
-        ("3", "QQ登录"),
+        ("2", "QQ登录"),
+        ("3", "微信登录"),
         ("4", "多模态 ON / OFF"),
         ("5", "刷新状态"),
+        ("6", "清理QQ聊天记录"),
         ("0", "退出"),
     ]
     for k, t in menu:
@@ -433,7 +434,7 @@ def _enable_adapter(name):
     return cfg
 
 def act_wx_login():
-    """2. 微信登录：已登录→提示[r]重登；未登录→直接拉 QR 扫码。"""
+    """3. 微信登录：已登录→提示[r]重登；未登录→直接拉 QR 扫码。"""
     st, info, qq, wx, mm = status_line()
     if wx.get("level") == "ok":
         print()
@@ -475,7 +476,7 @@ def act_wx_login():
     _done(ok)
 
 def act_qq_login():
-    """3. QQ登录：官方 AppImage 自动部署 → 扫码/快速登录 → ●已登录。"""
+    """2. QQ登录：官方 AppImage 自动部署 → 扫码/快速登录 → ●已登录。"""
     st, info, qq, wx, mm = status_line()
     qs = qq.get("level")
     if qs == "ok":
@@ -520,7 +521,7 @@ def act_qq_login():
     if ok:
         print()
         print(c("● QQ 登录完成，NapCat 运行中。", GREEN))
-        print("  - 免重扫：重启后选 [3] 即自动快速登录")
+        print("  - 免重扫：重启后选 [2] 即自动快速登录")
         print("  - 已写入 channel/config.json (qq 适配器自动启用)")
         print("  - 收发就绪：HTTP :3000 正向API / 事件推 127.0.0.1:18086/onebot")
         _enable_adapter("qq")
@@ -529,6 +530,76 @@ def act_qq_login():
         print(c("QQ 登录流程未完成（详见上方 NapCat 输出）。", RED))
         print(c("  NapCat 仍在运行可继续扫码；或重启后再试。", YELLOW))
     _done(ok)
+
+
+def _qq_nt_dirs():
+    import glob
+    qq_conf = os.path.expanduser("~/.config/QQ")
+    return [p for p in glob.glob(os.path.join(qq_conf, "nt_qq_*")) if os.path.isdir(p)]
+
+def _qq_msg_files():
+    """消息库白名单：nt_db 下 nt_msg.db* 与 *msg_fts.db*（主消息+全文检索）。
+    不含登录态/资料/设置库 → 清完免重扫。"""
+    import glob
+    files = []
+    for d in _qq_nt_dirs():
+        nt_db = os.path.join(d, "nt_db")
+        if not os.path.isdir(nt_db):
+            continue
+        for pat in ("nt_msg.db*", "*msg_fts.db*"):
+            files += glob.glob(os.path.join(nt_db, pat))
+    return sorted(set(files))
+
+def act_clean_qq():
+    """6. 清理 QQ 本地聊天记录：停 QQ → 删消息库(白名单) → 免扫码重启。"""
+    print()
+    dirs = _qq_nt_dirs()
+    if not dirs:
+        print(c("未找到 QQ 数据目录 (~/.config/QQ/nt_qq_*)。", RED))
+        _pause(); return
+    files = _qq_msg_files()
+    if not files:
+        print(c("消息库文件不存在（可能已被清理）。", YELLOW))
+        _pause(); return
+    total = sum(os.path.getsize(f) for f in files)
+    print(c("即将清理 QQ 本地聊天记录：", BOLD))
+    print("  数据目录:", ", ".join(os.path.basename(d) for d in dirs))
+    print("  消息库文件 %d 个，共 %.1f KB:" % (len(files), total / 1024))
+    for f in files:
+        print("    -", f.replace(os.path.expanduser("~"), "~"))
+    print(c("  影响：QQ 本地历史消息将清空；登录态保留 → 重启免扫码，Agent 链路不断。", YELLOW))
+    print("  确认请输入 y，其它键取消:", end=" ")
+    try:
+        k = input().strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(); return
+    if k != "y":
+        print(c("已取消，未删除任何文件。", YELLOW)); return
+    try:
+        from qqdeploy import qq_stop, qq_start_and_qr
+    except Exception as e:
+        print(c(f"  qqdeploy 载入失败: {e}", RED)); _pause(); return
+    print(c("  正在停止 QQ/NapCat…", CYAN))
+    try:
+        qq_stop()
+    except Exception as e:
+        print(c(f"  停止 QQ 出错: {e}", RED)); _pause(); return
+    time.sleep(1)
+    removed = 0
+    for f in files:
+        try:
+            os.remove(f); removed += 1
+        except OSError as e:
+            print(c(f"  删除失败 {os.path.basename(f)}: {e}", RED))
+    print(c(f"  已删除 {removed}/{len(files)} 个消息库文件。", GREEN if removed else RED))
+    print(c("  正在重启 QQ（免扫码快速登录）…", CYAN))
+    try:
+        ok = qq_start_and_qr(need_scan=True)
+        print(c("  QQ 已重新启动。" if ok else "  QQ 重启未完成，可用菜单 [2] 再试。",
+                GREEN if ok else YELLOW))
+    except Exception as e:
+        print(c(f"  重启出错: {e}（可用菜单 [2] 手动启动）", RED))
+    _pause()
 
 def act_log():
     print()
@@ -557,14 +628,15 @@ def main():
         os.system("clear" if os.name == "posix" else "cls")
         render()
         try:
-            k = input("  选择 [1-5 / 0]: ").strip()
+            k = input("  选择 [1-6 / 0]: ").strip()
         except (EOFError, KeyboardInterrupt):
             print("\n  再见。"); return
         if k == "1": act_start_stop()
-        elif k == "2": act_wx_login()
-        elif k == "3": act_qq_login()
+        elif k == "2": act_qq_login()
+        elif k == "3": act_wx_login()
         elif k == "4": toggle_multimodal(); _pause()
         elif k == "5": continue          # 刷新=回到 render 顶部（自然循环）
+        elif k == "6": act_clean_qq()
         elif k == "0": print("  再见。"); return
         else: print(c("  无效输入，请按菜单数字。", YELLOW)); time.sleep(0.8)
 
