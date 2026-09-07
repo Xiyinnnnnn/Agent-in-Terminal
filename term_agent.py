@@ -1,5 +1,8 @@
 import json, os, re, signal, subprocess, sys, time, urllib.request, base64, hashlib
 import readline
+# Ctrl+X 在 你> 输入阶段须作为普通字符进入 input()（默认被 readline 当 prefix 键吞掉）
+readline.parse_and_bind(r'"\C-x": self-insert')
+readline.parse_and_bind(r'"\C-x\C-x": "\C-x"')
 
 SYSTEM = """You are a helpful assistant.
 Before acting, decide the task type (build or fix) and adopt the matching style: build → hands-on production; fix → inspect-and-plan.
@@ -518,7 +521,11 @@ def main():
 
     while True:
         try:
-            q = input("\n你> ").replace("\x00", "").replace("\x18", "").strip()
+            raw = input("\n你> ").replace("\x00", "")
+            if "\x18" in raw:
+                _compress_requested = True
+                raw = raw.replace("\x18", "")
+            q = raw.strip()
         except _StopLoop:
             continue
         except (EOFError, KeyboardInterrupt):
