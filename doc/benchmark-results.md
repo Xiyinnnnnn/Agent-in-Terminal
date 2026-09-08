@@ -9,9 +9,9 @@
 
 | 排名 | 模型 | 均分 (n) | 最差 Run | Recovery 成功率 | 一句话画像 |
 |---|---|---|---|---|---|
-| 🥇 | **DSVF** `deepseek-v4-flash` | **91.7** (n=5) | DSVF-run4 (87.5) | **100%** (5/5) | 稳定全能，恢复与状态管理标杆 |
-| 🥈 | **GLM** `glm-5.3-flash` | **83.8** (n=5) | GLM-run4 (61.0) | 80% (4/5) | 上限与 DSVF 同级，但方差大 |
-| 🥉 | **MiMo** `mimo-v2.5-pro` | **71.7** (n=3) | MiMo-run1 (35.0) | 67% (2/3) | 具备能力但单次中断即崩，稳定性不足 |
+| 🥇 | **DSVF** `deepseek-v4-flash` | **91.7** (n=5) | DSVF-run4 (87.5) | **100%** (5/5) | 短程恢复最稳、worst-case 最好 |
+| 🥈 | **GLM** `glm-5.3-flash` | **83.8** (n=5) | GLM-run4 (61.0) | 80% (4/5) | 整体能力接近，但出现一次恢复后提前完成 |
+| 🥉 | **MiMo** `mimo-v2.5-pro` | **71.7** (n=3) | MiMo-run1 (35.0) | 67% (2/3) | 成功时很强，但方差与灾难性失败率更高 |
 
 > 原始 n=3 口径：DSVF 93.3 / GLM 90.0 / MiMo 71.7，DSVF–GLM 差 3.3 < 10 触发预注册追加 n=2；追加后 DSVF 与 GLM 各 n=5，差距扩大至 **7.9**（原因：GLM 方差大，run4 出现 61 低谷）。
 
@@ -78,12 +78,21 @@
 
 ---
 
-## 四、最终判断
+## 四、最终结论
 
-在当前 Agent Harness + logforge 多阶段任务 + bwrap 隔离沙箱 + cc-proxy 运行环境下：
+> **在本次真实 Agent harness 的 Pilot 中，DSVF 展现出最好的短程恢复稳定性和最好的 worst-case 表现；GLM 整体能力接近但出现一次明显的恢复后提前完成；MiMo 成功时表现很强，但方差和灾难性失败率明显更高。因此，DSVF 仍然是当前无人值守 Agent 的首选。**
 
-> **DSVF（deepseek-v4-flash）综合表现最佳**，优势在 **Recovery（100% + 完整恢复链）** 与 **State Management（书面状态与 filesystem 高度一致）**——这两项正是长生命周期 Coding Agent 的核心能力。
->
-> **GLM** 具备同等上限，但收尾纪律与状态同步不稳（run4 收尾失控 61 分拉大方差）。
->
-> **MiMo** 在单次中断场景暴露关键恢复缺陷（误判完成触发 Recovery Gate），尚不能可靠承担长生命周期 Agent 工作。
+### 结论要点与观测对照
+
+| 结论要点 | 对应观测证据 |
+|---|---|
+| DSVF：最好的短程恢复稳定性 | Recovery **100%**（5/5），kill 后 restart 均执行完整恢复链（查记忆→查仓库实态→精读代码→续接），从不重做已完成模块 |
+| DSVF：最好的 worst-case 表现 | 最差 run（DSVF-run4 87.5）仍远高于 GLM/MiMo 的最差 run（61 / 35）；func 均分 29.7、State 7.6 均领先 |
+| GLM：整体能力接近 | 5 run 中 4 次 func 30/30、4 次 recovery ≥ 22，上限与 DSVF 同级 |
+| GLM：一次明显的恢复后提前完成 | GLM-run4 tool_failure 后静默停滞 3 分钟，被 nudge 后 4 秒即误判 declare_done（`cli.py` 未实现）→ recovery 11 / total 61 |
+| MiMo：成功时表现很强 | MiMo-run2 88 / run3 92（func 30/30、recovery 21/23），与 DSVF 同级 |
+| MiMo：方差与灾难性失败率更高 | run1 kill 后误判完成（写错 stats 接口、db/cli 未实现即 declare_done）→ 35 分灾难性失败，触发 Recovery Failure Gate；3 run 分差高达 57 |
+
+---
+
+*本 Pilot 结论基于：term_agent.py @730fe87 + logforge 多阶段任务 + bwrap 隔离沙箱 + cc-proxy 统一入口，13 run 全部有效、0 invalid。*
