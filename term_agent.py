@@ -439,12 +439,12 @@ def RUN(args):
     try:
         p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
         global _proc; _proc = p
-        out, err, dl = "", "", time.time() + 600
+        out, err, dl = "", "", time.time() + 3600
         while p.poll() is None:
             if time.time() > dl:
                 os.killpg(p.pid, signal.SIGKILL)
                 p.wait()
-                return "命令超时（600秒）"
+                return "命令超时（3600秒）"
             watch = [sys.stdin, p.stdout, p.stderr] if old else [p.stdout, p.stderr]
             r, _, _ = select.select(watch, [], [], 0.1)
             if old and sys.stdin in r:
