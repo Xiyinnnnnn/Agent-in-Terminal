@@ -1,6 +1,5 @@
 import json, os, re, signal, subprocess, sys, time, urllib.request, base64, hashlib
 import readline
-# Ctrl+X 在 你> 输入阶段须作为普通字符进入 input()（默认被 readline 当 prefix 键吞掉）
 readline.parse_and_bind(r'"\C-x": self-insert')
 readline.parse_and_bind(r'"\C-x\C-x": "\C-x"')
 
