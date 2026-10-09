@@ -21,6 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/Xiyinnnnnn/Agent-in-Terminal/main/i
 ```
 
 > 脚本内部自动双源回退：优先走 jsDelivr CDN，失败自动切 GitHub raw，无需手动选择。
+> 同时把仓库 `skills/` 目录**原样复刻**到 `~/.config/term_agent/skill/`（原厂技能；以后新增技能只需往仓库丢文件，安装脚本无需改动）。
 
 首次运行输入 DeepSeek API Key：
 
@@ -120,7 +121,7 @@ DANGER_BL = [...]          # 黑名单项：单项=命令名，多项=组合命�
 安装脚本是**幂等**的：重复执行安装命令即可覆盖更新程序文件，不会动你的配置和记忆：
 
 ```bash
-# 方式一：重新执行安装命令（推荐，覆盖 install.sh / term_agent.py / .desktop 三件套）
+# 方式一：重新执行安装命令（推荐，覆盖 term_agent.py / .desktop / skills/ 目录）
 curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/install.sh | bash
 ```
 
@@ -133,7 +134,8 @@ curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/term_ag
 # 方式三：直接对 agent 说「更新你自己」（它自带 shell 工具，会自己拉取）
 ```
 
-> 安全：重跑安装命令不会覆盖 `~/.config/term_agent/`（API Key、记忆），放心更新。
+> 安全：重跑安装命令不会覆盖 `~/.config/term_agent/` 下的 `key.bin`、`memory/` 与你自己写的技能；
+> 只有 `skill/` 里与仓库同名的**原厂技能**会被覆盖更新（整目录跟随仓库，删掉仓库里的技能、重装即同步移除）。
 ## LICENSE
 
 MIT

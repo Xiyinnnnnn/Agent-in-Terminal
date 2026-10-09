@@ -222,3 +222,6 @@ key.bin
 secrets/
 ocr_models/
 *.bak*
+
+# 例外：技能清单随仓库分发（install.sh 在 GitHub API 不可达时兜底读取）
+!skills/.manifest
