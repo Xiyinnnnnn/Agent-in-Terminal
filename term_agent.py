@@ -368,6 +368,11 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
         return None
 
 
+try:
+    import importlib.util as _iu
+    _sp=_iu.spec_from_file_location("_ish",os.path.expanduser("~/.config/term_agent/skill/imgshrink.py")); _ISH=_iu.module_from_spec(_sp); _sp.loader.exec_module(_ISH)
+except Exception: _ISH=None
+
 def _img(q):
     import shlex
     _M={'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.webp':'image/webp'}
@@ -380,7 +385,7 @@ def _img(q):
         if os.path.isfile(p) and os.path.splitext(p)[1].lower() in _M: imgs.append(p)
         else: text.append(x)
     if not imgs: return q
-    b=[base64.b64encode(open(p,'rb').read()).decode() for p in imgs]
+    b=[base64.b64encode((_ISH.shrink_file(p) if _ISH else None) or open(p,'rb').read()).decode() for p in imgs]
     c=[{'type':'text','text':' '.join(text) or f'{len(imgs)}张图'}]
     c+=[{'type':'image_url','image_url':{'url':f'data:{_M[os.path.splitext(p)[1].lower()]};base64,{b64}'}} for p,b64 in zip(imgs,b)]
     return c

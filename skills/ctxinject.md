@@ -1,0 +1,21 @@
+# ctxinject（视觉注入）
+
+要看屏幕/图才能判断时用。一条命令，让我下一轮真看见。
+
+```bash
+S=~/.config/term_agent/skill/ctxinject.py
+python3 $S auto                    # 截图→注入→唤醒（默认就用这个）
+python3 $S inject -w "文本" a.png   # 指定文本/图
+python3 $S inject "文本"            # 不加 -w：不打扰宿主，等宿主回车时落地
+python3 $S shot | hosts | gc       # 只截图 | 列宿主 PID | 清旧载荷
+```
+退出码 0=已落地 3=已排队 1=错；回执 JSON 看 hist_len 与 content（图看 image_url 字节数）。
+
+## 规矩
+- 要看图就 auto，别让用户手打描述。
+- 不加 -w 时别重复调用：每条排队都会各插一条。
+- 拒插 / 已排队 = 宿主正忙（跑工具或等你输入），重跑一次即可。
+- 图会被宿主压缩历史换成 `[图]`，注入赶在压缩之后。
+
+练手台（别拿活体试错）：`python3 ~/.cache/ctxinject/hostctl.py start|feed ctx|stop`
+原理与实测证据：`memory/运行时注入-sys.remote_exec实测.md`
