@@ -11,6 +11,7 @@
 #    term_agent.py      -> ~/.local/bin/term_agent/       (主程序，零依赖)
 #    term-agent.desktop -> ~/.local/share/applications/   (应用菜单双击入口)
 #    key.bin            -> ~/.config/term_agent/          (API Key 加密保存，首次运行生成)
+#    skills/ctxinject*  -> ~/.config/term_agent/skill/    (原厂技能：运行时上下文注入)
 # ============================================================
 set -e
 
@@ -23,9 +24,10 @@ DEST="$HOME/.local/bin/term_agent"
 APPS="$HOME/.local/share/applications"
 CONFIG_DIR="$HOME/.config/term_agent"
 MEMORY_DIR="$CONFIG_DIR/memory"
+SKILL_DIR="$CONFIG_DIR/skill"
 
 echo "Downloading (CDN first, GitHub fallback)..."
-mkdir -p "$DEST" "$APPS" "$CONFIG_DIR" "$MEMORY_DIR"
+mkdir -p "$DEST" "$APPS" "$CONFIG_DIR" "$MEMORY_DIR" "$SKILL_DIR"
 
 # 双源下载：CDN 优先，失败自动切 GitHub raw
 dl() {
@@ -43,6 +45,9 @@ dl() {
 dl term_agent.py "$DEST/term_agent.py"
 dl term-agent.desktop "$APPS/term-agent.desktop"
 chmod +x "$DEST/term_agent.py" "$APPS/term-agent.desktop"
+
+dl skills/ctxinject.py "$SKILL_DIR/ctxinject.py"
+dl "skills/%E8%BF%90%E8%A1%8C%E6%97%B6%E4%B8%8A%E4%B8%8B%E6%96%87%E6%B3%A8%E5%85%A5.md" "$SKILL_DIR/运行时上下文注入.md"
 
 if [ ! -f "$CONFIG_DIR/key.bin" ]; then
     echo "First run will guide you to enter API Key (getpass, machine-bound encrypted)"
