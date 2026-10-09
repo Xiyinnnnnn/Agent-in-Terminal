@@ -1,4 +1,4 @@
-import json, os, re, signal, subprocess, sys, time, urllib.request, base64, hashlib
+import json, os, re, signal, subprocess, sys, time, urllib.request, base64, hashlib, zlib, struct
 import readline
 readline.parse_and_bind(r'"\C-x": self-insert')
 readline.parse_and_bind(r'"\C-x\C-x": "\C-x"')
@@ -368,10 +368,81 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
         return None
 
 
-try:
-    import importlib.util as _iu
-    _sp=_iu.spec_from_file_location("_ish",os.path.expanduser("~/.config/term_agent/skill/imgshrink.py")); _ISH=_iu.module_from_spec(_sp); _sp.loader.exec_module(_ISH)
-except Exception: _ISH=None
+
+MAGIC=b"\x89PNG\r\n\x1a\n"; MAXLONG=int(os.environ.get("TA_IMG_MAX") or 1000); LEV=int(os.environ.get("TA_IMG_LEV") or 6)
+def _chunk(t,d):
+    c=t+d; return struct.pack(">I",len(d))+c+struct.pack(">I",zlib.crc32(c)&0xFFFFFFFF)
+def _unf(raw,w,h,ch):
+    st=w*ch; out=bytearray(st*h); pv=bytes(st)
+    M7=int.from_bytes(b"\x7f"*st,"little"); M1=int.from_bytes(b"\x80"*st,"little"); ONE=int.from_bytes(b"\x01"*st,"little")
+    for y in range(h):
+        b=y*(st+1); f=raw[b]; ln=raw[b+1:b+1+st]
+        if f==0: cu=ln
+        elif f==2:
+            A=int.from_bytes(ln,"little"); B=int.from_bytes(pv,"little"); S=(A&M7)+(B&M7); C=((A&M1)>>7)+((B&M1)>>7)
+            cu=((S&M7)|((((S&M1)>>7)^(C&ONE))<<7)).to_bytes(st,"little")
+        elif f==1:
+            c=bytearray(ln)
+            for k in range(ch,st): c[k]=(c[k]+c[k-ch])&255
+            cu=bytes(c)
+        elif f==3:
+            c=bytearray(st)
+            for k in range(st):
+                l=c[k-ch] if k>=ch else 0
+                c[k]=(ln[k]+((l+pv[k])>>1))&255
+            cu=bytes(c)
+        else:
+            ul=bytes(ch)+pv[:-ch] if ch<st else bytes(st); c=bytearray(ln)
+            for k in range(ch): c[k]=(c[k]+pv[k])&255
+            for k in range(ch,st):
+                a=c[k-ch]; b2=pv[k]; d=ul[k]
+                pa=b2-d; pa=-pa if pa<0 else pa
+                pb=a-d; pb=-pb if pb<0 else pb
+                pc=a+b2-2*d; pc=-pc if pc<0 else pc
+                c[k]=(c[k]+(a if pa<=pb and pa<=pc else (b2 if pb<=pc else d)))&255
+            cu=bytes(c)
+        out[y*st:(y+1)*st]=cu; pv=cu
+    return out
+def _dec(d):
+    if d[:8]!=MAGIC: return None
+    i=8; idat=[]; w=h=bd=ct=inl=None
+    while i+12<=len(d):
+        ln=struct.unpack(">I",d[i:i+4])[0]; t=d[i+4:i+8]; b=d[i+8:i+8+ln]; i+=12+ln
+        if t==b"IHDR": w,h,bd,ct,_,_,inl=struct.unpack(">IIBBBBB",b)
+        elif t==b"IDAT": idat.append(b)
+        elif t==b"IEND": break
+    if bd!=8 or inl or ct not in(2,6) or not idat: return None
+    ch=3 if ct==2 else 4; raw=zlib.decompress(b"".join(idat))
+    return (w,h,ch,_unf(raw,w,h,ch)) if len(raw)==h*(w*ch+1) else None
+def _scl(buf,w,h,ch,lg):
+    k=max(1,-(-max(w,h)//lg))
+    if k==1: return w,h,bytes(buf)
+    st=w*ch; ow=w//k; oh=h//k
+    if ow<2 or oh<2: return w,h,bytes(buf)
+    T=bytes(i//k for i in range(256)); o=[]
+    for oy in range(oh):
+        a=None
+        for yy in range(oy*k,oy*k+k):
+            r=bytes(buf[yy*st:(yy+1)*st]).translate(T)
+            a=r if a is None else (int.from_bytes(a,"little")+int.from_bytes(r,"little")).to_bytes(st,"little")
+        o.append(b"".join(a[x*ch*k:x*ch*k+ch] for x in range(ow)))
+    return ow,oh,b"".join(o)
+def _enc(buf,w,h,ch):
+    s=256//LEV; t1=bytes(i//s for i in range(256))
+    r=buf[0::ch].translate(t1).translate(bytes((i*LEV*LEV&255) if i<LEV else 0 for i in range(256)))
+    g=buf[1::ch].translate(t1).translate(bytes((i*LEV&255) if i<LEV else 0 for i in range(256)))
+    b=buf[2::ch].translate(t1)
+    idx=(int.from_bytes(r,"little")+int.from_bytes(g,"little")+int.from_bytes(b,"little")).to_bytes(len(r),"little")
+    pal=bytes(v for i in range(LEV) for j in range(LEV) for k in range(LEV) for v in (i*s,j*s,k*s))
+    raw=b"".join(b"\x00"+idx[y*w:(y+1)*w] for y in range(h))
+    return MAGIC+_chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,3,0,0,0))+_chunk(b"PLTE",pal)+_chunk(b"IDAT",zlib.compress(raw,9))+_chunk(b"IEND",b"")
+def _shrink(p):
+    try:
+        im=_dec(open(p,"rb").read())
+        if not im: return None
+        w,h,b=_scl(im[3],im[0],im[1],im[2],MAXLONG)
+        return _enc(b,w,h,im[2]) if w>1 and h>1 else None
+    except Exception: return None
 
 def _img(q):
     import shlex
@@ -385,7 +456,7 @@ def _img(q):
         if os.path.isfile(p) and os.path.splitext(p)[1].lower() in _M: imgs.append(p)
         else: text.append(x)
     if not imgs: return q
-    b=[base64.b64encode((_ISH.shrink_file(p) if _ISH else None) or open(p,'rb').read()).decode() for p in imgs]
+    b=[base64.b64encode(_shrink(p) or open(p,'rb').read()).decode() for p in imgs]
     c=[{'type':'text','text':' '.join(text) or f'{len(imgs)}张图'}]
     c+=[{'type':'image_url','image_url':{'url':f'data:{_M[os.path.splitext(p)[1].lower()]};base64,{b64}'}} for p,b64 in zip(imgs,b)]
     return c
