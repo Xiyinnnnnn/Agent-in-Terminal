@@ -133,10 +133,19 @@ def shot(out=None, dev=None, long=None):
     dev = dev or (ADB if ADB in ds else ds[0])
     p = Path(out).expanduser() if out else BASE / ("shot_%s.png" % time.strftime("%Y%m%d-%H%M%S"))
     p.parent.mkdir(parents=True, exist_ok=True)
-    b = subprocess.run(["adb", "-s", dev, "exec-out", "screencap", "-p"], capture_output=True, timeout=90).stdout
-    if not b or b[:8] != b"\x89PNG\r\n\x1a\n": sys.exit("screencap 无输出或非 PNG")
-    p.write_bytes(b)
-    print("%s %dB 原始（压缩由宿主 _img 内嵌逻辑完成）" % (p, len(b)))
+    sys.path.insert(0, str(Path.home() / ".local/bin/term_agent"))
+    z = None
+    try:
+        from term_agent import _shrink_raw
+        b = subprocess.run(["adb", "-s", dev, "exec-out", "screencap"], capture_output=True, timeout=90).stdout
+        z = _shrink_raw(b, long) if len(b) >= 16 else None
+    except Exception as e:
+        print("raw 路线不可用：%s" % e, file=sys.stderr)
+    if not z:
+        z = subprocess.run(["adb", "-s", dev, "exec-out", "screencap", "-p"], capture_output=True, timeout=90).stdout
+        if not z or z[:8] != b"\x89PNG\r\n\x1a\n": sys.exit("screencap 无输出或非 PNG")
+    p.write_bytes(z)
+    print("%s %dB" % (p, len(z)))
     return str(p)
 
 def gc():

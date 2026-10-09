@@ -444,6 +444,13 @@ def _shrink(p):
         return _enc(b,w,h,im[2]) if w>1 and h>1 else None
     except Exception: return None
 
+def _shrink_raw(b,lg=None):
+    if len(b)<16: return None
+    w,h,_,_=struct.unpack("<IIII",b[:16])
+    if w<2 or h<2 or len(b)<16+w*h*4: return None
+    w,h,x=_scl(memoryview(b)[16:],w,h,4,lg or MAXLONG)
+    return _enc(x,w,h,4)
+
 def _img(q):
     import shlex
     _M={'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.webp':'image/webp'}
