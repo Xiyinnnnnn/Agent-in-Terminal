@@ -133,17 +133,10 @@ def shot(out=None, dev=None, long=None):
     dev = dev or (ADB if ADB in ds else ds[0])
     p = Path(out).expanduser() if out else BASE / ("shot_%s.png" % time.strftime("%Y%m%d-%H%M%S"))
     p.parent.mkdir(parents=True, exist_ok=True)
-    b = subprocess.run(["adb", "-s", dev, "exec-out", "screencap"], capture_output=True, timeout=90).stdout
-    if not b: sys.exit("screencap 无输出")
-    z = b
-    try:
-        sys.path.insert(0, str(Path.home() / ".config/term_agent/skill"))
-        import imgshrink
-        z = (imgshrink.shrink(b, long) if b[:8] == b"\x89PNG\r\n\x1a\n" else imgshrink.shrink_raw(b, long)) or b
-    except Exception as e:
-        print("缩放跳过：%s" % e, file=sys.stderr)
-    p.write_bytes(z)
-    print("%s %dB" % (p, len(z)))
+    b = subprocess.run(["adb", "-s", dev, "exec-out", "screencap", "-p"], capture_output=True, timeout=90).stdout
+    if not b or b[:8] != b"\x89PNG\r\n\x1a\n": sys.exit("screencap 无输出或非 PNG")
+    p.write_bytes(b)
+    print("%s %dB 原始（压缩由宿主 _img 内嵌逻辑完成）" % (p, len(b)))
     return str(p)
 
 def gc():
