@@ -124,12 +124,54 @@ DANGER_BL = [
     ":(){", ":(){:|:&};:",
 ]
 
-PIPE_PATTERNS = []
+MAX_NEST = 2
 
-def _first_hit(seg):
-    w = seg.split()[0] if seg.split() else ""
+PIPE_PATTERNS = [
+    (r"\bfind\b[^|;&]*\s-delete\b",            "find -delete"),
+    (r"\bgit\s+clean\b[^|;&]*-[a-z]*[fdx]",    "git clean -fdx"),
+    (r"\bchmod\s+(-R|--recursive)\s+0{3,4}\b", "chmod -R 000"),
+    (r"\bkill\s+-(9|KILL)\s+-1\b",             "kill 全体进程"),
+    (r"\btruncate\b[^|;&]*\s-s\s*0",           "truncate -s0"),
+    (r"\b(pkill|killall)\s+-9\b",               "pkill -9"),
+]
+
+_SHELLS = {"sh", "bash", "zsh", "ksh", "dash", "ash", "busybox", "fish"}
+_PREFIX_CMDS = {"sudo", "doas", "env", "nohup", "nice", "ionice", "timeout", "setsid", "xargs", "command", "exec", "stdbuf"}
+_SHELL_PIPE = re.compile(r"\|\s*(?:sudo\s+)?(?:ba|z|k|da)?sh\b|\|\s*(?:python[0-9.]*|perl|ruby|node)\b", re.I)
+
+def _unquote(x):
+    return x.replace('\\"', '"').replace("\\'", "'").strip("'\"")
+
+def _first_hit(seg, depth=0, assigned_vars=frozenset()):
+    toks = seg.split()
+    i, skip_val = 0, False
+    while i < len(toks) and i < 6:
+        if skip_val:
+            skip_val = False; i += 1; continue
+        t = toks[i].rsplit("/", 1)[-1]
+        if t in _PREFIX_CMDS or toks[i].startswith("-") or "=" in toks[i] or toks[i].isdigit():
+            if toks[i] in ("-u", "-g", "-c", "-n", "-p", "-s", "-C"):
+                skip_val = True
+            i += 1; continue
+        break
+    if i >= len(toks):
+        return None
+    base = toks[i].rsplit("/", 1)[-1]
+    if base.startswith("$") and not base.startswith("$("):
+        var_name = base.lstrip("$").strip("{}")
+        if var_name in assigned_vars:
+            return "变量间接执行 " + base
+    if depth < MAX_NEST and base in _SHELLS and "-c" in toks[i + 1:]:
+        c_idx = toks.index("-c", i + 1)
+        inner_hit = match_danger(_unquote(" ".join(toks[c_idx + 1:])), depth=depth + 1)
+        if inner_hit:
+            return base + " -c → " + inner_hit
+    if depth < MAX_NEST and base == "eval":
+        inner_hit = match_danger(_unquote(" ".join(toks[i + 1:])), depth=depth + 1)
+        if inner_hit:
+            return "eval → " + inner_hit
     for b in DANGER_BL:
-        if " " not in b and (w == b or w.startswith(b + ".") or w.startswith(b + ":")):
+        if " " not in b and (base == b or base.startswith(b + ".") or base.startswith(b + ":")):
             return b
     return None
 
@@ -152,12 +194,25 @@ def _split_segs(c):
         segs.append(buf)
     return segs
 
-def match_danger(cmd):
+def match_danger(cmd, depth=0):
     c = cmd.strip()
     if not c:
         return None
+    if depth < MAX_NEST:
+        for m in re.finditer(r"\$\(([^()]*)\)|`([^`]*)`", c):
+            inner_hit = match_danger(m.group(1) or m.group(2), depth=depth + 1)
+            if inner_hit:
+                return "命令替换 → " + inner_hit
+    if depth == 0:
+        for m in re.finditer(r"(?<![>0-9&])>(?!>|&)\s*([^\s;|&<>]+)", c):
+            target = m.group(1).strip("'\"")
+            if target.startswith(("/dev/", "/proc/", "/sys/")) or target.startswith("-"):
+                continue
+            if os.path.exists(os.path.expanduser(os.path.expandvars(target))):
+                return "重定向覆盖已存在文件 " + target
+    assigned_vars = set(re.findall(r"(?:^|[\s;&|])([A-Za-z_]\w*)=", c))
     for seg in _split_segs(c):
-        hit = _first_hit(seg)
+        hit = _first_hit(seg, assigned_vars=assigned_vars)
         if hit:
             return hit
     padded = " " + c + " "
@@ -167,6 +222,8 @@ def match_danger(cmd):
     for pat, desc in PIPE_PATTERNS:
         if re.search(pat, c, re.I):
             return desc
+    if _SHELL_PIPE.search(c):
+        return "管道进 shell"
     return None
 
 def input_yn(prompt, timeout):
@@ -192,6 +249,12 @@ def input_yn(prompt, timeout):
     return input(prompt).strip()
 
 def confirm_block(cmd, hit):
+    try:
+        if sys.stdin.isatty():
+            import termios as _tm
+            _tm.tcflush(sys.stdin.fileno(), _tm.TCIFLUSH)
+    except Exception:
+        pass
     print("──────────────────────────────────")
     print("⚠ 危险命令，需要键盘授权：")
     print(f"   命中黑名单: {hit}")
@@ -210,7 +273,8 @@ def confirm_block(cmd, hit):
         if ans is None:
             print(f"[超时拒绝] {AUTH_TIMEOUT}秒内未收到输入")
             return False
-        a = ans.strip().lower()
+        import unicodedata as _ud
+        a = _ud.normalize("NFKC", ans).strip().lower()
         if a in ("y", "yes"):
             return True
         if a in ("n", "no"):
@@ -576,8 +640,7 @@ class _StopLoop(Exception):
 
 def _kp(p):
     try:
-        if p.poll() is None:
-            os.killpg(p.pid, signal.SIGKILL)
+        os.killpg(p.pid, signal.SIGKILL)
         p.wait()
     except Exception:
         pass
@@ -615,7 +678,10 @@ def main():
             break
         if not q:
             continue
-        q=_img(q)
+        try:
+            q=_img(q)
+        except Exception:
+            pass
         mem_hist.append({"role": "user", "content": q})
 
         try:
