@@ -128,7 +128,9 @@ MAX_NEST = 2
 
 PIPE_PATTERNS = [
     (r"\bfind\b[^|;&]*\s-delete\b",            "find -delete"),
-    (r"\bgit\s+clean\b[^|;&]*-[a-z]*[fdx]",    "git clean -fdx"),
+    (r"\bgit\s+clean\b(?!.*?(?:--dry-run|\s-n\b))[^|;&]*-[a-zA-Z]*[fdx]\b", "git clean -fdx"),
+    (r"\bfind\b[^|;&]*\s-exec\s+(?:rm|shred|dd)\b", "find -exec 删除"),
+    (r"\bcp\b[^|;&]*\s/dev/(?:sd|nvme|vd|mmcblk)",     "cp 覆写块设备"),
     (r"\bchmod\s+(-R|--recursive)\s+0{3,4}\b", "chmod -R 000"),
     (r"\bkill\s+-(9|KILL)\s+-1\b",             "kill 全体进程"),
     (r"\btruncate\b[^|;&]*\s-s\s*0",           "truncate -s0"),
@@ -145,7 +147,7 @@ def _unquote(x):
 def _first_hit(seg, depth=0, assigned_vars=frozenset()):
     toks = seg.split()
     i, skip_val = 0, False
-    while i < len(toks) and i < 6:
+    while i < len(toks):
         if skip_val:
             skip_val = False; i += 1; continue
         t = toks[i].rsplit("/", 1)[-1]
@@ -176,9 +178,13 @@ def _first_hit(seg, depth=0, assigned_vars=frozenset()):
     return None
 
 def _split_segs(c):
-    segs, buf, q = [], "", None
+    segs, buf, q, esc = [], "", None, False
     for ch in c:
-        if q:
+        if esc:
+            buf += ch; esc = False
+        elif ch == "\\":
+            buf += ch; esc = True
+        elif q:
             buf += ch
             if ch == q:
                 q = None
@@ -410,6 +416,8 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
                         obj["function"]["arguments"] += fn["arguments"]
             if thinking:
                 print("\x1b[0m", end="", flush=True)
+            if not content and not tool_calls and not reasoning:
+                return "API_ERROR"
             message = {"role": "assistant", "content": content or None}
             if reasoning:
                 message["reasoning_content"] = reasoning

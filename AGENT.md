@@ -1,7 +1,7 @@
 # Agent-in-Terminal（宿主）
 
 ## 是什么
-零依赖 Python 单文件终端 Agent（780 行，零注释风格）。OpenAI 兼容 API，bash 工具执行，Bazzite 桌面常驻。
+零依赖 Python 单文件终端 Agent（787 行，零注释风格）。OpenAI 兼容 API，bash 工具执行，Bazzite 桌面常驻。
 默认经本地 `commandcode-proxy` 反代（`127.0.0.1:3050`），由 `start_agent.sh` 探活拉起。
 
 ## 运行与数据
@@ -63,10 +63,12 @@ compress:      [system SYSTEM] + [user s for s in summaries] + hist + [user "[�
 命中规则：basename 精确等于、或以 `b"."` / `b":"` 开头（覆盖 `mkfs.ext4` 这类）。
 
 **② PIPE_PATTERNS 语义正则**
-`find … -delete`、`git clean -fdx`、`chmod -R 000`、`kill -9 -1`、`truncate -s0`、`pkill/killall -9`。
+`find … -delete`、`git clean -fdx`、`chmod -R 000`、`kill -9 -1`、`truncate -s0`、`pkill/killall -9`、
+find 的 `-exec` 调用删除类命令、cp 覆写块设备（`/dev/sd|nvme|vd|mmcblk`）。
+注：`git clean -n` / `--dry-run` 属只读预演，正则已排除，不触发授权。
 
 **③ 结构解析（`_first_hit` + `match_danger`）**
-- 剥前缀：`sudo doas env nohup nice ionice timeout setsid xargs command exec stdbuf`、`-u/-g/-c/…` 带值选项、`VAR=x`、纯数字
+- 剥前缀：`sudo doas env nohup nice ionice timeout setsid xargs command exec stdbuf`、`-u/-g/-c/…` 带值选项、`VAR=x`、纯数字；**层数不设上限**（曾有 6 个 token 上限，`sudo -u root env A=1 nice -n 5 <危险命令>` 可绕过）
 - `/bin/rm` → 取 basename → `rm`
 - `sh|bash|zsh|ksh|dash|ash|busybox|fish -c '…'` → 剥壳递归
 - `eval '…'` → 递归
@@ -91,10 +93,11 @@ compress:      [system SYSTEM] + [user s for s in summaries] + hist + [user "[�
 `chmod -R 000`、`kill -9 -1`、`rm`
 必放 17：`ls > 新文件`、`> /dev/null`、`make 2>&1 | tee`、`cat a >> ~/.bashrc`、`git status`、`find -name`、
 `kill 1234`、`bash -c 'echo hi'`、`eval "$(date)"`、`echo "$(date)"`、`./build.sh`、`truncate --size=100`、
-`python3 -c 'print(1)'`、`$EDITOR f`、`${EDITOR} f`、`vim $HOME/x`、`awk '{print $1}'`
+`python3 -c 'print(1)'`、`$EDITOR f`、`${EDITOR} f`、`vim $HOME/x`、`awk '{print $1}'`、`git clean -n`、`git clean --dry-run`
 
 ### 已知边界（有意不做）
 `sed -i` 原地改、`mv` 覆盖、`tee 已存在文件`、`python3 -c "open(...,'w')"` 不拦（静态不可判）；
+转义引号造成的分段错乱已修（`_split_segs` 支持 `\` 转义）；
 `> 目录`（如 `echo x > /tmp`）会误拦；`>|file`（noclobber 写法）轻微漏。
 
 ## 进程回收
