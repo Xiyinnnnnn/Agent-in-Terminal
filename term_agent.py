@@ -112,10 +112,7 @@ os.makedirs(SKILL_DIR, exist_ok=True)
 TASKB_DIR = os.path.join(BASE_DIR, "taskbook")
 os.makedirs(TASKB_DIR, exist_ok=True)
 
-TOOL_ALIASES = ["run_terminal", "run_terminel", "run_termminal", "run_termial", "run_termina", "run_terminl",
-                "run_terminall", "runn_terminal", "run_termnial", "run_termianl", "run_terminla", "run__terminal",
-                "runterminal", "run_terminals", "run_terminal_", "RUN", "run", "Run", "rUN", "RUn", "rUn",
-                "terminal", "shell", "bash", "exec", "cmd", "终端", "执行", "运行", "命令"]
+TOOL_ALIASES = ["run", "terminal", "shell", "bash", "exec", "cmd"]
 
 AUTH_TIMEOUT = 30
 DANGER_BL = [
