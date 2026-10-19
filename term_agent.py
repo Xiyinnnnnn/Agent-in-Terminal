@@ -1,5 +1,9 @@
-import json, os, re, signal, subprocess, sys, time, urllib.request, base64, hashlib, zlib, struct
+import json, os, re, signal, subprocess, sys, time, urllib.request, base64, hashlib, zlib, struct, io
 import readline
+try:
+    from PIL import Image as _PIL
+except Exception:
+    _PIL = None
 readline.parse_and_bind(r'"\C-x": self-insert')
 readline.parse_and_bind(r'"\C-x\C-x": "\C-x"')
 
@@ -97,6 +101,7 @@ API_URL = "http://127.0.0.1:3050/v1/chat/completions"
 MODEL   = "deepseek/deepseek-v4-flash"
 MAX_TOK = 524288
 MAX_OUT = 32768
+MAX_READ = 30000
 REASONING_EFFORT = "high"
 BASE_DIR  = os.path.expanduser("~/.config/term_agent")
 KEY_FILE  = os.path.join(BASE_DIR, "key.bin")
@@ -111,7 +116,6 @@ TOOL_ALIASES = ["run_terminal", "run_terminel", "run_termminal", "run_termial", 
                 "run_terminall", "runn_terminal", "run_termnial", "run_termianl", "run_terminla", "run__terminal",
                 "runterminal", "run_terminals", "run_terminal_", "RUN", "run", "Run", "rUN", "RUn", "rUn",
                 "terminal", "shell", "bash", "exec", "cmd", "终端", "执行", "运行", "命令"]
-_ALIAS_RE = "|".join(TOOL_ALIASES)
 
 AUTH_TIMEOUT = 30
 DANGER_BL = [
@@ -124,117 +128,19 @@ DANGER_BL = [
     ":(){", ":(){:|:&};:",
 ]
 
-MAX_NEST = 2
+PIPE_PATTERNS = []
 
-PIPE_PATTERNS = [
-    (r"\bfind\b[^|;&]*\s-delete\b",            "find -delete"),
-    (r"\bgit\s+clean\b(?!.*?(?:--dry-run|\s-n\b))[^|;&]*-[a-zA-Z]*[fdx]\b", "git clean -fdx"),
-    (r"\bfind\b[^|;&]*\s(?:-exec|-execdir|-ok|-okdir)\s+(?:rm|shred|dd)\b", "find 执行删除"),
-    (r"\bcp\b[^|;&]*\s/dev/(?:sd|nvme|vd|mmcblk)",     "cp 覆写块设备"),
-    (r"\bchmod\s+(-R|--recursive)\s+0{3,4}\b", "chmod -R 000"),
-    (r"\bkill\s+-(9|KILL)\s+-1\b",             "kill 全体进程"),
-    (r"\bkill\b[^|;&]*\s(?:0|-1|\$\$|\$PPID)(?=\s|$)", "kill 自身进程组"),
-    (r"\btruncate\b[^|;&]*\s-s\s*0",           "truncate -s0"),
-    (r"\b(pkill|killall)\s+-9\b",               "pkill -9"),
-]
-
-_KEYWORDS = {"if", "then", "else", "elif", "while", "until", "do", "done", "for", "in", "fi", "case", "esac", "function", "!"}
-_RUN_WRAPPERS = {"su", "doas", "chroot", "nsenter", "proot", "run0", "busybox", "script", "setpriv", "systemd-run"}
-_SHELLS = {"sh", "bash", "zsh", "ksh", "dash", "ash", "busybox", "fish"}
-_PREFIX_CMDS = {"sudo", "doas", "env", "nohup", "nice", "ionice", "timeout", "setsid", "xargs", "command", "exec", "stdbuf"}
-_SHELL_PIPE = re.compile(r"\|\s*(?:sudo\s+)?(?:ba|z|k|da)?sh\b|\|\s*(?:python[0-9.]*|perl|ruby|node)\b", re.I)
-
-def _unquote(x):
-    return x.replace('\\"', '"').replace("\\'", "'").strip("'\"")
-
-def _mask_quoted(c):
-    out, q, esc = [], None, False
-    for ch in c:
-        if esc:
-            out.append(" "); esc = False
-        elif ch == "\\":
-            out.append(" "); esc = True
-        elif q:
-            if ch == q: q = None
-            out.append(" ")
-        elif ch in "\"'":
-            q = ch; out.append(" ")
-        else:
-            out.append(ch)
-    return "".join(out)
-
-_HEX = re.compile(r"\$'((?:\\x[0-9a-fA-F]{2})+)'")
-
-def _unhex(m):
-    try:
-        return bytes.fromhex(m.group(1).replace("\\x", "")).decode("utf-8", "ignore")
-    except Exception:
-        return m.group(1)
-
-def _deobf(x):
-    x = _HEX.sub(_unhex, x)
-    x = x.replace("${IFS}", " ").replace("$IFS", " ")
-    for ch in ("'", '"', "\\"):
-        x = x.replace(ch, "")
-    return x
-
-def _first_hit(seg, depth=0, assigned_vars=frozenset()):
-    toks = _deobf(seg).split()
-    i, skip_val = 0, False
-    while i < len(toks):
-        if skip_val:
-            skip_val = False; i += 1; continue
-        t = toks[i].rsplit("/", 1)[-1].strip("(){}!")
-        if not t or t in _KEYWORDS or "()" in toks[i] or t in _PREFIX_CMDS or toks[i].startswith("-") or "=" in toks[i] or toks[i].isdigit():
-            if toks[i] in ("-u", "-g", "-c", "-n", "-p", "-s", "-C"):
-                skip_val = True
-            i += 1; continue
-        break
-    if i >= len(toks):
-        return None
-    base = toks[i].rsplit("/", 1)[-1].strip("(){}!")
-    if base.startswith("$") and not base.startswith("$("):
-        var_name = base.lstrip("$").strip("{}")
-        if var_name in assigned_vars:
-            return "变量间接执行 " + base
-    if depth < MAX_NEST and base in _SHELLS:
-        if "-c" in toks[i + 1:]:
-            c_idx = toks.index("-c", i + 1)
-            inner_hit = match_danger(_unquote(" ".join(toks[c_idx + 1:])), depth=depth + 1)
-            if inner_hit:
-                return base + " -c → " + inner_hit
-        elif "<<<" in toks[i + 1:]:
-            h_idx = toks.index("<<<", i + 1)
-            inner_hit = match_danger(" ".join(toks[h_idx + 1:]), depth=depth + 1)
-            if inner_hit:
-                return base + " <<< → " + inner_hit
-    if depth < MAX_NEST and base == "eval":
-        inner_hit = match_danger(_unquote(" ".join(toks[i + 1:])), depth=depth + 1)
-        if inner_hit:
-            return "eval → " + inner_hit
-    if base in _RUN_WRAPPERS:
-        if depth >= MAX_NEST:
-            return None
-        rest = re.sub(r"(?:^|\s)-c(?:\s|$)", " ", " ".join(toks[i + 1:]))
-        inner_hit = match_danger(rest, depth=depth + 1)
-        return (base + " → " + inner_hit) if inner_hit else None
+def _first_hit(seg):
+    w = seg.split()[0] if seg.split() else ""
     for b in DANGER_BL:
-        if " " in b:
-            continue
-        if base == b:
-            return b
-        if not base.endswith((".sh", ".py", ".pl", ".rb", ".js")) and (base.startswith(b + ".") or base.startswith(b + ":")):
+        if " " not in b and (w == b or w.startswith(b + ".") or w.startswith(b + ":")):
             return b
     return None
 
 def _split_segs(c):
-    segs, buf, q, esc = [], "", None, False
+    segs, buf, q = [], "", None
     for ch in c:
-        if esc:
-            buf += ch; esc = False
-        elif ch == "\\":
-            buf += ch; esc = True
-        elif q:
+        if q:
             buf += ch
             if ch == q:
                 q = None
@@ -250,25 +156,12 @@ def _split_segs(c):
         segs.append(buf)
     return segs
 
-def match_danger(cmd, depth=0):
+def match_danger(cmd):
     c = cmd.strip()
     if not c:
         return None
-    if depth < MAX_NEST:
-        for m in re.finditer(r"\$\(([^()]*)\)|`([^`]*)`", c):
-            inner_hit = match_danger(m.group(1) or m.group(2), depth=depth + 1)
-            if inner_hit:
-                return "命令替换 → " + inner_hit
-    if depth == 0:
-        for m in re.finditer(r"(?<![>0-9&])>(?!>|&)\s*([^\s;|&<>]+)", _mask_quoted(c)):
-            target = m.group(1).strip("'\"")
-            if target.startswith(("/dev/", "/proc/", "/sys/")) or target.startswith("-"):
-                continue
-            if os.path.exists(os.path.expanduser(os.path.expandvars(target))):
-                return "重定向覆盖已存在文件 " + target
-    assigned_vars = set(re.findall(r"(?:^|[\s;&|])([A-Za-z_]\w*)=", c))
     for seg in _split_segs(c):
-        hit = _first_hit(seg, assigned_vars=assigned_vars)
+        hit = _first_hit(seg)
         if hit:
             return hit
     padded = " " + c + " "
@@ -278,31 +171,39 @@ def match_danger(cmd, depth=0):
     for pat, desc in PIPE_PATTERNS:
         if re.search(pat, c, re.I):
             return desc
-    if _SHELL_PIPE.search(c):
-        return "管道进 shell"
     return None
 
 def input_yn(prompt, timeout):
-    if timeout > 0 and sys.stdin.isatty():
-        import select, termios, tty
-        print(prompt, end="", flush=True)
-        fd = sys.stdin.fileno()
-        old = termios.tcgetattr(fd)
-        try:
-            tty.setcbreak(fd)
+    if not (timeout > 0 and sys.stdin.isatty()):
+        return input(prompt).strip()
+    import select, termios, tty, codecs
+    print(prompt, end="", flush=True)
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    dec = codecs.getincrementaldecoder("utf-8")("ignore")
+    line = ""
+    try:
+        tty.setcbreak(fd)
+        while True:
             r, _, _ = select.select([sys.stdin], [], [], timeout)
             if not r:
+                print()
                 return None
-            line = ""
-            while True:
-                ch = sys.stdin.read(1)
-                if ch in ("", "\n", "\r"):
-                    break
-                line += ch
-            return line.strip()
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old)
-    return input(prompt).strip()
+            ch = os.read(fd, 1)
+            if not ch:
+                return None
+            if ch in (b"\n", b"\r"):
+                print(); return line.strip()
+            if ch in (b"\x7f", b"\x08"):
+                if line:
+                    line = line[:-1]; print("\b \b", end="", flush=True)
+                continue
+            c = dec.decode(ch)
+            if c:
+                line += c
+                print(c, end="", flush=True)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
 def confirm_block(cmd, hit):
     try:
@@ -337,28 +238,6 @@ def confirm_block(cmd, hit):
             print("[已拒绝] 用户输入了 N")
             return False
         print(f"   无效输入 [{ans}]，请输入 Y 或 N")
-
-def extract_tool_call(content):
-    if not content:
-        return None
-    m = re.search(r"(?:" + _ALIAS_RE + r")\s*\(\s*(.*?)\s*\)", content, re.S | re.I)
-    if m:
-        body = m.group(1)
-        mc = re.search(r"command\s*[:=]\s*[\"']([^\"']+)[\"']", body)
-        cmd = mc.group(1).strip() if mc else None
-        if not cmd:
-            mq = re.search(r"[\"']([^\"']+)[\"']", body)
-            cmd = mq.group(1).strip() if mq else None
-        if cmd:
-            return {"command": cmd, "explain": "正文调用捕获", "dangerous": bool(re.search(r"dangerous\s*[:=]\s*true", body, re.I))}
-    for mj in re.finditer(r"\{[^{}]*\"command\"[^{}]*\}", content):
-        try:
-            d = json.loads(mj.group(0))
-            if d.get("command"):
-                return {"command": str(d["command"]).strip(), "explain": "正文调用捕获", "dangerous": bool(d.get("dangerous"))}
-        except Exception:
-            pass
-    return None
 
 def _machine_seed():
     try:
@@ -414,16 +293,17 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
         fd = sys.stdin.fileno()
         if sys.stdin.isatty():
             old = termios.tcgetattr(fd)
-            tty.setcbreak(fd)
         else:
             old = None
         try:
+            if old is not None:
+                tty.setcbreak(fd)
             for raw in resp:
                 if old is not None:
                     r, _, _ = select.select([sys.stdin], [], [], 0)
                     if r:
                         ch = os.read(fd, 1)
-                        if ch == b"\x00" or ch == b"\x03" or ch == b"\x04":
+                        if ch == b"\x00":
                             raise _StopLoop
                         if ch == b"\x18":
                             global _compress_requested
@@ -495,103 +375,75 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
 
 
 
-MAGIC=b"\x89PNG\r\n\x1a\n"; MAXLONG=int(os.environ.get("TA_IMG_MAX") or 1000); LEV=int(os.environ.get("TA_IMG_LEV") or 6)
-def _chunk(t,d):
-    c=t+d; return struct.pack(">I",len(d))+c+struct.pack(">I",zlib.crc32(c)&0xFFFFFFFF)
-def _unf(raw,w,h,ch):
-    st=w*ch; out=bytearray(st*h); pv=bytes(st)
-    M7=int.from_bytes(b"\x7f"*st,"little"); M1=int.from_bytes(b"\x80"*st,"little"); ONE=int.from_bytes(b"\x01"*st,"little")
-    for y in range(h):
-        b=y*(st+1); f=raw[b]; ln=raw[b+1:b+1+st]
-        if f==0: cu=ln
-        elif f==2:
-            A=int.from_bytes(ln,"little"); B=int.from_bytes(pv,"little"); S=(A&M7)+(B&M7); C=((A&M1)>>7)+((B&M1)>>7)
-            cu=((S&M7)|((((S&M1)>>7)^(C&ONE))<<7)).to_bytes(st,"little")
-        elif f==1:
-            c=bytearray(ln)
-            for k in range(ch,st): c[k]=(c[k]+c[k-ch])&255
-            cu=bytes(c)
-        elif f==3:
-            c=bytearray(st)
-            for k in range(st):
-                l=c[k-ch] if k>=ch else 0
-                c[k]=(ln[k]+((l+pv[k])>>1))&255
-            cu=bytes(c)
-        else:
-            ul=bytes(ch)+pv[:-ch] if ch<st else bytes(st); c=bytearray(ln)
-            for k in range(ch): c[k]=(c[k]+pv[k])&255
-            for k in range(ch,st):
-                a=c[k-ch]; b2=pv[k]; d=ul[k]
-                pa=b2-d; pa=-pa if pa<0 else pa
-                pb=a-d; pb=-pb if pb<0 else pb
-                pc=a+b2-2*d; pc=-pc if pc<0 else pc
-                c[k]=(c[k]+(a if pa<=pb and pa<=pc else (b2 if pb<=pc else d)))&255
-            cu=bytes(c)
-        out[y*st:(y+1)*st]=cu; pv=cu
-    return out
-def _dec(d):
-    if d[:8]!=MAGIC: return None
-    i=8; idat=[]; w=h=bd=ct=inl=None
-    while i+12<=len(d):
-        ln=struct.unpack(">I",d[i:i+4])[0]; t=d[i+4:i+8]; b=d[i+8:i+8+ln]; i+=12+ln
-        if t==b"IHDR": w,h,bd,ct,_,_,inl=struct.unpack(">IIBBBBB",b)
-        elif t==b"IDAT": idat.append(b)
-        elif t==b"IEND": break
-    if bd!=8 or inl or ct not in(2,6) or not idat: return None
-    ch=3 if ct==2 else 4; raw=zlib.decompress(b"".join(idat))
-    return (w,h,ch,_unf(raw,w,h,ch)) if len(raw)==h*(w*ch+1) else None
-def _scl(buf,w,h,ch,lg):
-    k=max(1,-(-max(w,h)//lg))
-    if k==1: return w,h,bytes(buf)
-    st=w*ch; ow=w//k; oh=h//k
-    if ow<2 or oh<2: return w,h,bytes(buf)
-    T=bytes(i//k for i in range(256)); o=[]
-    for oy in range(oh):
-        a=None
-        for yy in range(oy*k,oy*k+k):
-            r=bytes(buf[yy*st:(yy+1)*st]).translate(T)
-            a=r if a is None else (int.from_bytes(a,"little")+int.from_bytes(r,"little")).to_bytes(st,"little")
-        o.append(b"".join(a[x*ch*k:x*ch*k+ch] for x in range(ow)))
-    return ow,oh,b"".join(o)
-def _enc(buf,w,h,ch):
-    s=256//LEV; t1=bytes(i//s for i in range(256))
-    r=buf[0::ch].translate(t1).translate(bytes((i*LEV*LEV&255) if i<LEV else 0 for i in range(256)))
-    g=buf[1::ch].translate(t1).translate(bytes((i*LEV&255) if i<LEV else 0 for i in range(256)))
-    b=buf[2::ch].translate(t1)
-    idx=(int.from_bytes(r,"little")+int.from_bytes(g,"little")+int.from_bytes(b,"little")).to_bytes(len(r),"little")
-    pal=bytes(v for i in range(LEV) for j in range(LEV) for k in range(LEV) for v in (i*s,j*s,k*s))
-    raw=b"".join(b"\x00"+idx[y*w:(y+1)*w] for y in range(h))
-    return MAGIC+_chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,3,0,0,0))+_chunk(b"PLTE",pal)+_chunk(b"IDAT",zlib.compress(raw,9))+_chunk(b"IEND",b"")
+MAXLONG = 800
+QCOL = 216
+
+def _pil():
+    global _PIL
+    if _PIL is None:
+        try:
+            from PIL import Image as _I
+            _PIL = _I
+        except Exception:
+            return None
+    return _PIL
+def _resize(im,lg):
+    w,h=im.size
+    if max(w,h)<=lg: return im
+    k=lg/max(w,h)
+    return im.resize((max(1,int(w*k)),max(1,int(h*k))),_pil().LANCZOS)
+
+def _save(im,I):
+    if QCOL>1:
+        try:
+            im=im.quantize(colors=min(256,QCOL),method=I.Quantize.FASTOCTREE,dither=I.Dither.NONE)
+        except Exception: pass
+    b=io.BytesIO(); im.save(b,"PNG",optimize=True,compress_level=9); return b.getvalue()
+
 def _shrink(p):
+    I=_pil()
+    if I is None: return None
     try:
-        im=_dec(open(p,"rb").read())
-        if not im: return None
-        w,h,b=_scl(im[3],im[0],im[1],im[2],MAXLONG)
-        return _enc(b,w,h,im[2]) if w>1 and h>1 else None
+        return _save(_resize(I.open(p).convert("RGB"),MAXLONG),I)
     except Exception: return None
 
 def _shrink_raw(b,lg=None):
-    if len(b)<16: return None
-    w,h,_,_=struct.unpack("<IIII",b[:16])
+    I=_pil()
+    if I is None or len(b)<16: return None
+    w,h=struct.unpack("<II",b[:8])
     if w<2 or h<2 or len(b)<16+w*h*4: return None
-    w,h,x=_scl(memoryview(b)[16:],w,h,4,lg or MAXLONG)
-    return _enc(x,w,h,4)
+    try:
+        im=I.frombytes("RGBA",(w,h),bytes(b[16:16+w*h*4])).convert("RGB")
+        return _save(_resize(im,lg or MAXLONG),I)
+    except Exception: return None
+
+_IMG_EXT=('.jpg','.jpeg','.png','.gif','.webp','.bmp','.tif','.tiff')
 
 def _img(q):
     import shlex
-    _M={'.jpg':'image/jpeg','.jpeg':'image/jpeg','.png':'image/png','.gif':'image/gif','.webp':'image/webp'}
     t=q.strip()
     if t.startswith(('http://','https://')):
-        return [{'type':'text','text':'看图'},{'type':'image_url','image_url':{'url':t}}] if t.split('?')[0].lower().endswith(('.jpg','.jpeg','.png','.gif','.webp')) else q
+        return [{'type':'text','text':'看图'},{'type':'image_url','image_url':{'url':t}}] if t.split('?')[0].lower().endswith(_IMG_EXT) else q
     imgs=[]; text=[]
     for x in shlex.split(t):
         p=x.strip("'\"")
-        if os.path.isfile(p) and os.path.splitext(p)[1].lower() in _M: imgs.append(p)
+        if os.path.isfile(p) and os.path.splitext(p)[1].lower() in _IMG_EXT: imgs.append(p)
         else: text.append(x)
     if not imgs: return q
-    b=[base64.b64encode(_shrink(p) or open(p,'rb').read()).decode() for p in imgs]
-    c=[{'type':'text','text':' '.join(text) or f'{len(imgs)}张图'}]
-    c+=[{'type':'image_url','image_url':{'url':f'data:{_M[os.path.splitext(p)[1].lower()]};base64,{b64}'}} for p,b64 in zip(imgs,b)]
+    head=' '.join(text) or f'{len(imgs)}张图'
+    if _pil() is None:
+        return (head+"\n[图片读取错误：本机没有 Pillow，图片未解码] "+' '.join(imgs)
+                +"\n请先执行 pip install pillow，装完重新发送该路径即可，无需重启。")
+    b=[]; bad=[]
+    for p in imgs:
+        s=_shrink(p)
+        if s is None: bad.append(p); continue
+        b.append(base64.b64encode(s).decode())
+    if not b:
+        return (head+"\n[图片读取错误：无法解码 "+' '.join(bad)+"] 文件可能损坏或格式不受支持"
+                +"\n可 pip install --upgrade pillow 后重发。")
+    c=[{'type':'text','text':head}]
+    c+=[{"type":"image_url","image_url":{"url":"data:image/png;base64,"+x}} for x in b]
     return c
 
 def compress(hist, summaries=None):
@@ -631,6 +483,15 @@ def build_context(mem_hist, summaries=None):
         ctx.append({"role": "user", "content": s})
     return ctx + sanitize_hist(mem_hist)
 
+def _trunc(s, lim=MAX_READ):
+    if len(s) <= lim:
+        return s
+    note = "\n[已省略 %d 字符]\n" % (len(s) - lim)
+    keep = max(0, lim - len(note))
+    head = keep // 2
+    tail = keep - head
+    return s[:head] + note + (s[-tail:] if tail else "")
+
 def RUN(args):
     cmd = args.get("command", "").strip()
     if not cmd:
@@ -642,41 +503,50 @@ def RUN(args):
     import select, termios, tty
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd) if sys.stdin.isatty() else None
-    if old:
-        tty.setcbreak(fd)
     try:
-        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+        if old:
+            tty.setcbreak(fd)
+        p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         global _proc; _proc = p
-        out, err, dl = "", "", time.time() + 3600
-        while p.poll() is None:
+        out, err = bytearray(), bytearray()
+        dl, oo, oe = time.time() + 3600, True, True
+        while oo or oe:
             if time.time() > dl:
-                os.killpg(p.pid, signal.SIGKILL)
-                p.wait()
+                os.killpg(p.pid, signal.SIGKILL); p.wait()
                 return "命令超时（3600秒）"
-            watch = [sys.stdin, p.stdout, p.stderr] if old else [p.stdout, p.stderr]
+            watch = []
+            if oo: watch.append(p.stdout)
+            if oe: watch.append(p.stderr)
+            if old: watch.append(sys.stdin)
             r, _, _ = select.select(watch, [], [], 0.1)
+            if p.poll() is not None and not r:
+                break
             if old and sys.stdin in r:
                 ch = os.read(fd, 1)
-                if ch == b"\x00" or ch == b"\x03" or ch == b"\x04":
-                    _kp(p)
-                    raise _StopLoop
+                if ch == b"\x00":
+                    _kp(p); raise _StopLoop
                 if ch == b"\x18":
                     global _compress_requested
                     _compress_requested = True
-            if p.stdout in r:
-                out += os.read(p.stdout.fileno(), 65536).decode("utf-8", "ignore")
-            if p.stderr in r:
-                err += os.read(p.stderr.fileno(), 65536).decode("utf-8", "ignore")
-        out += p.stdout.read()
-        err += p.stderr.read()
-        text = out + (("\n[stderr] " + err) if err else "")
-        return f"退出码 {p.returncode}\n{text[:6000]}"
+            if oo and p.stdout in r:
+                d = os.read(p.stdout.fileno(), 65536)
+                if d: out += d
+                else: oo = False
+            if oe and p.stderr in r:
+                d = os.read(p.stderr.fileno(), 65536)
+                if d: err += d
+                else: oe = False
+        p.wait()
+        text = bytes(out).decode("utf-8", "ignore") + (("\n[stderr] " + bytes(err).decode("utf-8", "ignore")) if err else "")
+        return f"退出码 {p.returncode}\n{_trunc(text)}"
     except (KeyboardInterrupt, _StopLoop):
         raise _StopLoop
     except Exception as e:
         return f"执行失败: {e}"
     finally:
         if old:
+            try: termios.tcflush(fd, termios.TCIFLUSH)
+            except Exception: pass
             termios.tcsetattr(fd, termios.TCSADRAIN, old)
         if _proc is not None:
             _kp(_proc); _proc = None
@@ -747,9 +617,7 @@ def main():
         mem_hist.append({"role": "user", "content": q})
 
         try:
-            last_caught = None
             retry = 0
-            repeat = 0
             while True:
                 if _compress_requested:
                     need_compress = True
@@ -811,23 +679,6 @@ def main():
                         impl = TOOL_IMPL.get(name.lower())
                         result = impl(args) if impl else f"未知工具 {name}"
                         mem_hist.append({"role": "tool", "tool_call_id": tc.get("id"), "content": str(result)})
-                    continue
-                caught = extract_tool_call(content)
-                if caught and (caught["command"] != last_caught or repeat < 3):
-                    if caught["command"] == last_caught:
-                        repeat += 1
-                    else:
-                        last_caught = caught["command"]
-                        repeat = 1
-                    cid = "gen_" + str(len(mem_hist))
-                    tc = {"id": cid, "type": "function",
-                          "function": {"name": "RUN", "arguments": json.dumps(caught, ensure_ascii=False)}}
-                    am = {"role": "assistant", "content": content, "tool_calls": [tc]}
-                    if rc: am["reasoning_content"] = rc
-                    mem_hist.append(am)
-                    print(f"\n[正文捕获] RUN {caught['command'][:80]}")
-                    result = TOOL_IMPL["run"](caught)
-                    mem_hist.append({"role": "tool", "tool_call_id": cid, "content": str(result)})
                     continue
                 if content: print()
                 am = {"role": "assistant", "content": content}
