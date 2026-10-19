@@ -224,7 +224,7 @@ def confirm_block(cmd, hit):
     while True:
         try:
             ans = input_yn("\033[31m   确认执行 (Y/N): \033[0m", AUTH_TIMEOUT)
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             print("\n[已拒绝] 输入中断")
             return False
         if ans is None:
@@ -362,8 +362,8 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
         if content:
             return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
         return "API_ERROR"
-    except (KeyboardInterrupt, _StopLoop):
-        raise _StopLoop
+    except _StopLoop:
+        raise
     except Exception:
         if content:
             return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
@@ -486,9 +486,16 @@ def build_context(mem_hist, summaries=None):
 def _trunc(s, lim=MAX_READ):
     if len(s) <= lim:
         return s
-    note = "\n[已省略 %d 字符]\n" % (len(s) - lim)
-    keep = max(0, lim - len(note))
-    head = keep // 2
+    n = len(s)
+    keep = lim
+    for _ in range(3):
+        note = "\n[已省略 %d 字符]\n" % (n - keep)
+        k = max(0, lim - len(note))
+        if k == keep:
+            break
+        keep = k
+    note = "\n[已省略 %d 字符]\n" % (n - keep)
+    head = keep * 6 // 10
     tail = keep - head
     return s[:head] + note + (s[-tail:] if tail else "")
 
@@ -539,8 +546,8 @@ def RUN(args):
         p.wait()
         text = bytes(out).decode("utf-8", "ignore") + (("\n[stderr] " + bytes(err).decode("utf-8", "ignore")) if err else "")
         return f"退出码 {p.returncode}\n{_trunc(text)}"
-    except (KeyboardInterrupt, _StopLoop):
-        raise _StopLoop
+    except _StopLoop:
+        raise
     except Exception as e:
         return f"执行失败: {e}"
     finally:
@@ -605,7 +612,7 @@ def main():
             q = raw.strip()
         except _StopLoop:
             continue
-        except (EOFError, KeyboardInterrupt):
+        except EOFError:
             print("\n再见")
             break
         if not q:
@@ -687,8 +694,6 @@ def main():
                 break
         except _StopLoop:
             print("\x1b[0m", end="")
-        except KeyboardInterrupt:
-            print("\n[已中断本轮]")
         except Exception as e:
             print(f"\n[内部错误] {type(e).__name__}: {e}")
 
