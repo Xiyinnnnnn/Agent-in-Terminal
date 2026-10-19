@@ -80,6 +80,16 @@ find 的 `-exec` 调用删除类命令、cp 覆写块设备（`/dev/sd|nvme|vd|m
 `> 目标` 且目标**已存在**（`os.path.exists`）→ 命中。
 放行：`> /dev/null`、`2>&1`、`>>` 追加、写新文件。
 
+### 语法归一与包装器剥离（2026-10-19 第二批）
+- 去混淆 `_deobf`：引号、反斜杠、空引号对、`${IFS}`、`$'\xNN'` 先归一，再取 base 判定
+- 分组与关键字：`(` `)` `{` `}` `!` `if then do done fi case function` 等不再作为 base 逃逸点
+- 包装器递归 `_RUN_WRAPPERS`：`su doas chroot nsenter proot run0 busybox script setpriv systemd-run` 余下部分递归判危险（`-c` 参数按命令处理）
+- here-string：`sh/bash <<< "…"` 内层递归
+- `find` 判定扩到 `-execdir` / `-ok` / `-okdir`
+- 自毁类：`kill` 目标为进程组或自身（`0` / `-1` / `$$` / `$PPID`）直接拦
+- 误报修正：脚本名（`.sh/.py/.pl/.rb/.js`）不再被前缀规则当命令；引号内 `>` 不再当重定向
+- 运行期健壮性：主循环兜底 `except`（不再被单次异常终结会话）、Ctrl+C 只中断本轮（`KeyboardInterrupt` 转 `_StopLoop`）、`resp` 显式关闭、空 key 不抛 `TypeError`
+
 ### 授权闸门（confirm_block）
 - 进闸门前 `tcflush(TCIFLUSH)`：清掉提示框出现前的预输入，封死"没看提示就被放行"
 - 归一化 `NFKC` + strip + lower：全角 `ｙ/Ｙ/ｎ/Ｎ` 与半角等效

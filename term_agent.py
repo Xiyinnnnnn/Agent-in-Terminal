@@ -129,14 +129,17 @@ MAX_NEST = 2
 PIPE_PATTERNS = [
     (r"\bfind\b[^|;&]*\s-delete\b",            "find -delete"),
     (r"\bgit\s+clean\b(?!.*?(?:--dry-run|\s-n\b))[^|;&]*-[a-zA-Z]*[fdx]\b", "git clean -fdx"),
-    (r"\bfind\b[^|;&]*\s-exec\s+(?:rm|shred|dd)\b", "find -exec 删除"),
+    (r"\bfind\b[^|;&]*\s(?:-exec|-execdir|-ok|-okdir)\s+(?:rm|shred|dd)\b", "find 执行删除"),
     (r"\bcp\b[^|;&]*\s/dev/(?:sd|nvme|vd|mmcblk)",     "cp 覆写块设备"),
     (r"\bchmod\s+(-R|--recursive)\s+0{3,4}\b", "chmod -R 000"),
     (r"\bkill\s+-(9|KILL)\s+-1\b",             "kill 全体进程"),
+    (r"\bkill\b[^|;&]*\s(?:0|-1|\$\$|\$PPID)(?=\s|$)", "kill 自身进程组"),
     (r"\btruncate\b[^|;&]*\s-s\s*0",           "truncate -s0"),
     (r"\b(pkill|killall)\s+-9\b",               "pkill -9"),
 ]
 
+_KEYWORDS = {"if", "then", "else", "elif", "while", "until", "do", "done", "for", "in", "fi", "case", "esac", "function", "!"}
+_RUN_WRAPPERS = {"su", "doas", "chroot", "nsenter", "proot", "run0", "busybox", "script", "setpriv", "systemd-run"}
 _SHELLS = {"sh", "bash", "zsh", "ksh", "dash", "ash", "busybox", "fish"}
 _PREFIX_CMDS = {"sudo", "doas", "env", "nohup", "nice", "ionice", "timeout", "setsid", "xargs", "command", "exec", "stdbuf"}
 _SHELL_PIPE = re.compile(r"\|\s*(?:sudo\s+)?(?:ba|z|k|da)?sh\b|\|\s*(?:python[0-9.]*|perl|ruby|node)\b", re.I)
@@ -144,36 +147,83 @@ _SHELL_PIPE = re.compile(r"\|\s*(?:sudo\s+)?(?:ba|z|k|da)?sh\b|\|\s*(?:python[0-
 def _unquote(x):
     return x.replace('\\"', '"').replace("\\'", "'").strip("'\"")
 
+def _mask_quoted(c):
+    out, q, esc = [], None, False
+    for ch in c:
+        if esc:
+            out.append(" "); esc = False
+        elif ch == "\\":
+            out.append(" "); esc = True
+        elif q:
+            if ch == q: q = None
+            out.append(" ")
+        elif ch in "\"'":
+            q = ch; out.append(" ")
+        else:
+            out.append(ch)
+    return "".join(out)
+
+_HEX = re.compile(r"\$'((?:\\x[0-9a-fA-F]{2})+)'")
+
+def _unhex(m):
+    try:
+        return bytes.fromhex(m.group(1).replace("\\x", "")).decode("utf-8", "ignore")
+    except Exception:
+        return m.group(1)
+
+def _deobf(x):
+    x = _HEX.sub(_unhex, x)
+    x = x.replace("${IFS}", " ").replace("$IFS", " ")
+    for ch in ("'", '"', "\\"):
+        x = x.replace(ch, "")
+    return x
+
 def _first_hit(seg, depth=0, assigned_vars=frozenset()):
-    toks = seg.split()
+    toks = _deobf(seg).split()
     i, skip_val = 0, False
     while i < len(toks):
         if skip_val:
             skip_val = False; i += 1; continue
-        t = toks[i].rsplit("/", 1)[-1]
-        if t in _PREFIX_CMDS or toks[i].startswith("-") or "=" in toks[i] or toks[i].isdigit():
+        t = toks[i].rsplit("/", 1)[-1].strip("(){}!")
+        if not t or t in _KEYWORDS or "()" in toks[i] or t in _PREFIX_CMDS or toks[i].startswith("-") or "=" in toks[i] or toks[i].isdigit():
             if toks[i] in ("-u", "-g", "-c", "-n", "-p", "-s", "-C"):
                 skip_val = True
             i += 1; continue
         break
     if i >= len(toks):
         return None
-    base = toks[i].rsplit("/", 1)[-1]
+    base = toks[i].rsplit("/", 1)[-1].strip("(){}!")
     if base.startswith("$") and not base.startswith("$("):
         var_name = base.lstrip("$").strip("{}")
         if var_name in assigned_vars:
             return "变量间接执行 " + base
-    if depth < MAX_NEST and base in _SHELLS and "-c" in toks[i + 1:]:
-        c_idx = toks.index("-c", i + 1)
-        inner_hit = match_danger(_unquote(" ".join(toks[c_idx + 1:])), depth=depth + 1)
-        if inner_hit:
-            return base + " -c → " + inner_hit
+    if depth < MAX_NEST and base in _SHELLS:
+        if "-c" in toks[i + 1:]:
+            c_idx = toks.index("-c", i + 1)
+            inner_hit = match_danger(_unquote(" ".join(toks[c_idx + 1:])), depth=depth + 1)
+            if inner_hit:
+                return base + " -c → " + inner_hit
+        elif "<<<" in toks[i + 1:]:
+            h_idx = toks.index("<<<", i + 1)
+            inner_hit = match_danger(" ".join(toks[h_idx + 1:]), depth=depth + 1)
+            if inner_hit:
+                return base + " <<< → " + inner_hit
     if depth < MAX_NEST and base == "eval":
         inner_hit = match_danger(_unquote(" ".join(toks[i + 1:])), depth=depth + 1)
         if inner_hit:
             return "eval → " + inner_hit
+    if base in _RUN_WRAPPERS:
+        if depth >= MAX_NEST:
+            return None
+        rest = re.sub(r"(?:^|\s)-c(?:\s|$)", " ", " ".join(toks[i + 1:]))
+        inner_hit = match_danger(rest, depth=depth + 1)
+        return (base + " → " + inner_hit) if inner_hit else None
     for b in DANGER_BL:
-        if " " not in b and (base == b or base.startswith(b + ".") or base.startswith(b + ":")):
+        if " " in b:
+            continue
+        if base == b:
+            return b
+        if not base.endswith((".sh", ".py", ".pl", ".rb", ".js")) and (base.startswith(b + ".") or base.startswith(b + ":")):
             return b
     return None
 
@@ -210,7 +260,7 @@ def match_danger(cmd, depth=0):
             if inner_hit:
                 return "命令替换 → " + inner_hit
     if depth == 0:
-        for m in re.finditer(r"(?<![>0-9&])>(?!>|&)\s*([^\s;|&<>]+)", c):
+        for m in re.finditer(r"(?<![>0-9&])>(?!>|&)\s*([^\s;|&<>]+)", _mask_quoted(c)):
             target = m.group(1).strip("'\"")
             if target.startswith(("/dev/", "/proc/", "/sys/")) or target.startswith("-"):
                 continue
@@ -353,8 +403,8 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}
     req = urllib.request.Request(API_URL, data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + API_KEY, "User-Agent": "curl/8.5.0"})
-    content, usage = "", None
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + str(API_KEY or ""), "User-Agent": "curl/8.5.0"})
+    content, usage, resp = "", None, None
     try:
         resp = urllib.request.urlopen(req, timeout=600)
         if not stream:
@@ -373,7 +423,7 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
                     r, _, _ = select.select([sys.stdin], [], [], 0)
                     if r:
                         ch = os.read(fd, 1)
-                        if ch == b"\x00":
+                        if ch == b"\x00" or ch == b"\x03" or ch == b"\x04":
                             raise _StopLoop
                         if ch == b"\x18":
                             global _compress_requested
@@ -432,12 +482,16 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
         if content:
             return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
         return "API_ERROR"
-    except _StopLoop:
-        raise
+    except (KeyboardInterrupt, _StopLoop):
+        raise _StopLoop
     except Exception:
         if content:
             return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
         return None
+    finally:
+        if resp is not None:
+            try: resp.close()
+            except Exception: pass
 
 
 
@@ -603,9 +657,8 @@ def RUN(args):
             r, _, _ = select.select(watch, [], [], 0.1)
             if old and sys.stdin in r:
                 ch = os.read(fd, 1)
-                if ch == b"\x00":
-                    os.killpg(p.pid, signal.SIGKILL)
-                    p.wait()
+                if ch == b"\x00" or ch == b"\x03" or ch == b"\x04":
+                    _kp(p)
                     raise _StopLoop
                 if ch == b"\x18":
                     global _compress_requested
@@ -618,8 +671,8 @@ def RUN(args):
         err += p.stderr.read()
         text = out + (("\n[stderr] " + err) if err else "")
         return f"退出码 {p.returncode}\n{text[:6000]}"
-    except _StopLoop:
-        raise
+    except (KeyboardInterrupt, _StopLoop):
+        raise _StopLoop
     except Exception as e:
         return f"执行失败: {e}"
     finally:
@@ -648,7 +701,8 @@ class _StopLoop(Exception):
 
 def _kp(p):
     try:
-        os.killpg(p.pid, signal.SIGKILL)
+        if p.poll() is None:
+            os.killpg(p.pid, signal.SIGKILL)
         p.wait()
     except Exception:
         pass
@@ -782,6 +836,10 @@ def main():
                 break
         except _StopLoop:
             print("\x1b[0m", end="")
+        except KeyboardInterrupt:
+            print("\n[已中断本轮]")
+        except Exception as e:
+            print(f"\n[内部错误] {type(e).__name__}: {e}")
 
 if __name__ == "__main__":
     main()
