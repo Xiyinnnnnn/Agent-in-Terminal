@@ -372,7 +372,7 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
 
 
 
-MAXLONG = 800
+MAXLONG = 512
 QCOL = 216
 
 def _pil():
@@ -420,7 +420,7 @@ def _img(q):
     import shlex
     t=q.strip()
     if t.startswith(('http://','https://')):
-        return [{'type':'text','text':'看图'},{'type':'image_url','image_url':{'url':t}}] if t.split('?')[0].lower().endswith(_IMG_EXT) else q
+        return [{'type':'text','text':'看图'},{'type':'image_url','image_url':{'url':t,'detail':'low'}}] if t.split('?')[0].lower().endswith(_IMG_EXT) else q
     imgs=[]; text=[]
     for x in shlex.split(t):
         p=x.strip("'\"")
@@ -440,7 +440,7 @@ def _img(q):
         return (head+"\n[图片读取错误：无法解码 "+' '.join(bad)+"] 文件可能损坏或格式不受支持"
                 +"\n可 pip install --upgrade pillow 后重发。")
     c=[{'type':'text','text':head}]
-    c+=[{"type":"image_url","image_url":{"url":"data:image/png;base64,"+x}} for x in b]
+    c+=[{"type":"image_url","image_url":{"url":"data:image/png;base64,"+x,"detail":"low"}} for x in b]
     return c
 
 def compress(hist, summaries=None):
