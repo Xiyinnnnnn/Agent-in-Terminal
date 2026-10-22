@@ -39,7 +39,9 @@ def work():
     r = {"hist_len": len(h)}
     r["content"] = [[p.get("type"), len((p.get("image_url") or {}).get("url", "")) if p.get("type") == "image_url" else p.get("text")] for p in c] if isinstance(c, list) else [["str", str(c)[:120]]]
     if IMG:
-        p = Path(IMG); r["img"] = [p.is_file(), p.stat().st_size if p.is_file() else 0]
+        ps = [Path(x) for x in IMG.split() if Path(x).is_file()]
+        r["imgs"] = [len(ps), sum(p.stat().st_size for p in ps)]
+        if len(ps) == 1: r["img"] = [True, ps[0].stat().st_size]
     S["res"] = r
     return r
 out = {}
@@ -104,7 +106,9 @@ def spawn_watch(pid, text, img, tok):
 def inject(pid, text, img, wake, timeout):
     if pid == os.getpid(): sys.exit("拒绝：目标是本进程")
     if not Path("/proc/%d" % pid).exists(): sys.exit("无此 pid %d" % pid)
-    if img and not Path(img).is_file(): sys.exit("无此图片 %s" % img)
+    if img:
+        miss = [x for x in img.split() if not Path(x).is_file()]
+        if miss: sys.exit("无此图片 %s" % " ".join(miss))
     ok = wake and caught(pid, WAKE)
     if wake and not ok: print("未捕获 SIGWINCH，退化为排队")
     tok = str(PAY / ("done_%d_%d" % (pid, time.time() * 1000)))
@@ -181,5 +185,5 @@ if __name__ == "__main__":
     elif a.v == "gc": gc()
     elif a.v == "inject":
         im = [x for x in a.items if Path(x).suffix.lower() in EXT]
-        sys.exit(inject(pid_of(a), " ".join(x for x in a.items if x not in im), im[0] if im else "", a.wake, a.timeout))
+        sys.exit(inject(pid_of(a), " ".join(x for x in a.items if x not in im), " ".join(im), a.wake, a.timeout))
     else: sys.exit(inject(pid_of(a), a.text, shot(), True, a.timeout))
