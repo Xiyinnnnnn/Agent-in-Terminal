@@ -57,10 +57,11 @@ def extract(src, frames, long, maxsec):
     tw, th = max(2, int(w * k) // 2 * 2), max(2, int(h * k) // 2 * 2)
     frames.mkdir(parents=True, exist_ok=True)
     for f in frames.glob("*.jpg"): f.unlink()
+    fps = 5 if dur < 30 else (2 if dur < 120 else 1)
     sh(["ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(src), "-an",
-        "-vf", "fps=1,scale=%d:%d" % (tw, th), "-q:v", "4", str(frames / "f%05d.jpg")])
+        "-vf", "fps=%g,scale=%d:%d" % (fps, tw, th), "-q:v", "4", str(frames / "f%05d.jpg")])
     n = len(list(frames.glob("f*.jpg")))
-    return w, h, dur, (tw, th), n
+    return w, h, dur, (tw, th), n, fps
 
 def detect(frames, thr, maxf):
     from PIL import Image, ImageChops, ImageStat
@@ -100,7 +101,8 @@ def est(p, long=None):
         return None
 
 def fit(items, budget, long):
-    per = est(items[0]["p"])
+    cand = [q for q in (est(x["p"]) for x in items) if q]
+    per = max(cand) if cand else None
     if not per or not budget or per * len(items) <= budget: return items, long, per
     from PIL import Image
     for L in (480, 360, 300, 240, 180):
@@ -114,12 +116,12 @@ def fit(items, budget, long):
         items = [items[i] for i in sorted(set(idx))]
     return items, 180, q
 
-def organize(frames, keep, out, long=0):
+def organize(frames, keep, out, long=0, fps=1):
     out.mkdir(parents=True, exist_ok=True)
     for f in out.glob("*.jpg"): f.unlink()
     items = []
     for n, i in enumerate(keep, 1):
-        src, dst = frames / ("f%05d.jpg" % (i + 1)), out / ("t%06d_i%02d.jpg" % (i, n))
+        src, dst = frames / ("f%05d.jpg" % (i + 1)), out / ("t%06d_i%02d.jpg" % (int(i * 1000 / fps), n))
         if long:
             from PIL import Image
             im = Image.open(src).convert("RGB")
@@ -129,11 +131,11 @@ def organize(frames, keep, out, long=0):
             im.save(dst, "JPEG", quality=88, optimize=True)
         else:
             shutil.copyfile(src, dst)
-        items.append({"t": i, "n": n, "p": str(dst)})
+        items.append({"t": int(i * 1000 / fps), "sec": round(i / float(fps), 2), "i": i, "n": n, "p": str(dst)})
     return items
 
 def inject(items, header, wake, pid):
-    text = "%s | %d帧 %s" % (header, len(items), " ".join("%ds" % x["t"] for x in items))
+    text = "%s | %d帧 %s" % (header, len(items), " ".join("%.1fs" % (x["t"] / 1000.0) for x in items))
     cmd = [sys.executable, str(CTX), "inject"]
     if pid: cmd += ["--pid", str(pid)]
     if wake: cmd += ["-w"]
@@ -168,21 +170,27 @@ def main():
     else:
         vid = Path(src).expanduser()
         if not vid.is_file(): sys.exit("无此文件 %s" % src)
-    w, h, dur, twth, n1 = extract(vid, d / "f1", a.long, a.max_sec)
+    w, h, dur, twth, n1, fps = extract(vid, d / "f1", a.long, a.max_sec)
     keep, sc, cut = detect(d / "f1", a.thr, a.max_frames)
-    pre = organize(d / "f1", keep, d / "out")
+    pre = organize(d / "f1", keep, d / "out", fps=fps)
     pre, long_out, per = fit(pre, a.budget, min(a.long, max(twth)))
-    items = pre if long_out == min(a.long, max(twth)) else organize(d / "f1", [x["t"] for x in pre], d / "out", long_out)
+    items = pre if long_out == min(a.long, max(twth)) else organize(d / "f1", [x["i"] for x in pre], d / "out", long_out, fps)
     cut += len(keep) - len(items)
-    print("源 %dx%d %.0fs → 1fps %d帧 @%dx%d → 关键帧 %d（阈值%.1f 压缩%.0f%%%s）"
-          % (w, h, dur, n1, twth[0], twth[1], len(items), a.thr,
+    print("源 %dx%d %.1fs → %gfps %d帧 @%dx%d → 关键帧 %d（阈值%.1f 压缩%.0f%%%s）"
+          % (w, h, dur, fps, n1, twth[0], twth[1], len(items), a.thr,
              100.0 * (1 - len(items) / max(1, n1)), "，超限裁掉%d" % cut if cut else ""))
     if per: print("预算 %dk → 每帧约 %.1fk token × %d = %.1fk（长边 %d）"
                   % (a.budget // 1000, per / 1000.0, len(items), per * len(items) / 1000.0, long_out))
-    for x in items: print("  %5ds %s" % (x["t"], x["p"]))
+    from PIL import Image, ImageStat
+    means = {x["p"]: ImageStat.Stat(Image.open(x["p"]).convert("L")).mean[0] for x in items}
+    for x in items: print("  %6.1fs mean%5.1f %s" % (x["t"] / 1000.0, means[x["p"]], x["p"]))
     json.dump({"src": str(vid), "size": [w, h], "dur": dur, "thr": a.thr,
                "frames": items}, open(d / "manifest.json", "w"), ensure_ascii=False, indent=1)
     if a.no_inject: return 0
+    if max(means.values()) < 2.0:
+        print("关键帧全为空场（最亮帧灰度均值 %.2f < 2）→ 不注入：调 --thr 或按秒手工定点抽帧"
+              % max(means.values()))
+        return 5
     return inject(items, "视频%ds %dx%d 关键帧" % (dur, w, h), not a.quiet, a.pid)
 
 if __name__ == "__main__":
