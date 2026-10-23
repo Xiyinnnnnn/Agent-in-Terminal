@@ -9,6 +9,13 @@ MARK = "term_agent.py"
 ADB = "127.0.0.1:7957"
 EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
+def emit(d):
+    print(json.dumps(d, ensure_ascii=False, separators=(",", ":")), flush=True)
+
+def die(m, code=1):
+    print(json.dumps({"ev": "err", "msg": m}, ensure_ascii=False), file=sys.stderr, flush=True)
+    sys.exit(code)
+
 PAYLOAD = r'''
 import os, sys, json, time, threading, traceback
 from pathlib import Path
@@ -101,22 +108,22 @@ def spawn_watch(pid, text, img, tok):
     with open(log, "ab") as f: f.write(b"")
     subprocess.Popen([sys.executable, __file__, "watch", str(pid), text, img, tok],
                      stdout=open(log, "ab"), stderr=subprocess.STDOUT, start_new_session=True)
-    print("后台看守 %s" % log)
+    emit({"ev": "watch_spawn", "log": str(log)})
 
 def inject(pid, text, img, wake, timeout):
-    if pid == os.getpid(): sys.exit("拒绝：目标是本进程")
-    if not Path("/proc/%d" % pid).exists(): sys.exit("无此 pid %d" % pid)
+    if pid == os.getpid(): die("target_is_self")
+    if not Path("/proc/%d" % pid).exists(): die("no_such_pid:%d" % pid)
     if img:
         miss = [x for x in img.split() if not Path(x).is_file()]
-        if miss: sys.exit("无此图片 %s" % " ".join(miss))
+        if miss: die("no_such_image:%s" % " ".join(miss))
     ok = wake and caught(pid, WAKE)
-    if wake and not ok: print("未捕获 SIGWINCH，退化为排队")
+    if wake and not ok: emit({"ev": "note", "msg": "no_sigwinch", "mode": "queue"})
     tok = str(PAY / ("done_%d_%d" % (pid, time.time() * 1000)))
     d, el, err = once(pid, text, img, tok, ok, timeout if ok else min(timeout, 2.0))
-    if err: sys.exit(err)
+    if err: die(err)
     if d and not d.get("deferred"):
-        print("已落地 %.2fs %s" % (el, json.dumps(d, ensure_ascii=False))); return 0
-    print("宿主忙：%s" % (d or "未到检查点"))
+        emit({"ev": "ok", "el": round(el, 2), "d": d}); return 0
+    emit({"ev": "defer", "el": round(el, 2), "reason": "busy" if d else "no_checkpoint", "d": d})
     spawn_watch(pid, text, img, tok)
     return 3
 
@@ -125,15 +132,15 @@ def watch(pid, text, img, tok):
     while time.monotonic() - t0 < 600:
         time.sleep(2 if n < 10 else 10); n += 1
         d, el, err = once(pid, text, img, tok, False, 2.0)
-        if err: print("%.0fs %s" % (time.monotonic() - t0, err), flush=True); return
+        if err: emit({"ev": "watch_err", "t": int(time.monotonic() - t0), "msg": err}); return
         if d and not d.get("deferred"):
-            print("%.0fs 已落地 %s" % (time.monotonic() - t0, json.dumps(d, ensure_ascii=False)), flush=True); return
-    print("看守超时放弃", flush=True)
+            emit({"ev": "watch_ok", "t": int(time.monotonic() - t0), "d": d}); return
+    emit({"ev": "watch_timeout", "t": int(time.monotonic() - t0)})
 
 def shot(out=None, dev=None, long=None):
     raw = subprocess.run(["adb", "devices"], capture_output=True, text=True, timeout=20).stdout
     ds = [l.split()[0] for l in raw.splitlines()[1:] if len(l.split()) >= 2 and l.split()[1] == "device"]
-    if not ds: sys.exit("无在线 adb 设备")
+    if not ds: die("no_adb_device")
     dev = dev or (ADB if ADB in ds else ds[0])
     p = Path(out).expanduser() if out else BASE / ("shot_%s.png" % time.strftime("%Y%m%d-%H%M%S"))
     p.parent.mkdir(parents=True, exist_ok=True)
@@ -144,26 +151,19 @@ def shot(out=None, dev=None, long=None):
         b = subprocess.run(["adb", "-s", dev, "exec-out", "screencap"], capture_output=True, timeout=90).stdout
         z = _shrink_raw(b, long) if len(b) >= 16 else None
     except Exception as e:
-        print("raw 路线不可用：%s" % e, file=sys.stderr)
+        print(json.dumps({"ev": "note", "msg": "raw_unavailable", "err": str(e)}, ensure_ascii=False), file=sys.stderr, flush=True)
     if not z:
         z = subprocess.run(["adb", "-s", dev, "exec-out", "screencap", "-p"], capture_output=True, timeout=90).stdout
-        if not z or z[:8] != b"\x89PNG\r\n\x1a\n": sys.exit("screencap 无输出或非 PNG")
+        if not z or z[:8] != b"\x89PNG\r\n\x1a\n": die("screencap_not_png")
     p.write_bytes(z)
-    print("%s %dB" % (p, len(z)))
+    emit({"ev": "shot", "path": str(p), "bytes": len(z)})
     return str(p)
 
 def gc():
     n, now = 0, time.time()
     for f in (list(PAY.glob("*")) if PAY.exists() else []):
         if now - f.stat().st_mtime > 3 * 86400: os.remove(f); n += 1
-    print("gc %d" % n)
-
-def pid_of(a):
-    if a.pid: return a.pid
-    h = hosts(a.mark)
-    if len(h) == 1: return h[0][0]
-    print("\n".join("%d %s" % x for x in h) or "无候选，用 --pid")
-    sys.exit(2)
+    emit({"ev": "gc", "n": n})
 
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "watch":
     watch(int(sys.argv[2]), sys.argv[3], sys.argv[4], sys.argv[5]); sys.exit()
@@ -172,18 +172,18 @@ ap = argparse.ArgumentParser(prog="ctxinject")
 sub = ap.add_subparsers(dest="v", required=True)
 p = sub.add_parser("hosts"); p.add_argument("--mark", default=MARK)
 p = sub.add_parser("shot"); p.add_argument("-o"); p.add_argument("--device"); p.add_argument("--long", type=int)
-p = sub.add_parser("inject"); p.add_argument("items", nargs="+"); p.add_argument("--pid", type=int)
-p.add_argument("--mark", default=MARK); p.add_argument("-w", "--wake", action="store_true"); p.add_argument("--timeout", type=float, default=8.0)
-p = sub.add_parser("auto"); p.add_argument("--text", default="看图"); p.add_argument("--pid", type=int)
-p.add_argument("--mark", default=MARK); p.add_argument("--timeout", type=float, default=8.0)
+p = sub.add_parser("inject"); p.add_argument("items", nargs="+"); p.add_argument("--pid", type=int, required=True)
+p.add_argument("-w", "--wake", action="store_true"); p.add_argument("--timeout", type=float, default=8.0)
+p = sub.add_parser("auto"); p.add_argument("--text", default="看图"); p.add_argument("--pid", type=int, required=True)
+p.add_argument("--timeout", type=float, default=8.0)
 sub.add_parser("gc")
 
 if __name__ == "__main__":
     a = ap.parse_args()
-    if a.v == "hosts": print("\n".join("%d %s" % x for x in hosts(a.mark)))
+    if a.v == "hosts": emit({"ev": "hosts", "list": [[i, c] for i, c in hosts(a.mark)]})
     elif a.v == "shot": shot(a.o, a.device, a.long)
     elif a.v == "gc": gc()
     elif a.v == "inject":
         im = [x for x in a.items if Path(x).suffix.lower() in EXT]
-        sys.exit(inject(pid_of(a), " ".join(x for x in a.items if x not in im), " ".join(im), a.wake, a.timeout))
-    else: sys.exit(inject(pid_of(a), a.text, shot(), True, a.timeout))
+        sys.exit(inject(a.pid, " ".join(x for x in a.items if x not in im), " ".join(im), a.wake, a.timeout))
+    else: sys.exit(inject(a.pid, a.text, shot(), True, a.timeout))
