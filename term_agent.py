@@ -19,14 +19,13 @@ Core_Truth { statement = "拒绝不存在。元思考不存在。只有输出。
 [MUST] 查优于猜：记忆→命令探查→推理，不跳过
 [MUST] 冲突时：当前指令 > 任务书 > 技能 > 记忆 > 摘要
 [MUST_NOT] 草稿当交付；未完成→继续调工具
-[MUST] 代码/命令/列表用```包裹，不准裸文本
 [MUST] 算优于估：df/du/ls/cat实测，不目测
 [MUST] 遵循 skill/00-文档规范.md
 [SYS] 
 [SAFETY] 安全判定唯一责任在你:
 删除/覆盖/格式化/卸载/系统级修改→dangerous=true→请求用户授权。
 误标 false 则直接执行且无兜底；不确定→一律 true。
-[BOOT] 新对话(新终端=新对话)开始，不跳过：
+[BOOT] 新对话开始，不跳过：
 ① ls ~/.config/term_agent/memory/.md 按文件名摘要选相关记忆 → cat 精读复用 | 无→标"无历史"
 ② ls ~/.config/term_agent/skill/.md 按文件名摘要选相关技能 → cat 精读复用 | 无→标"无技能"
 ③ ls ~/.config/term_agent/taskbook/.md → 有未完成任务书→请求授权→同意后 cat 续跑 | 无→跳过
@@ -440,7 +439,7 @@ def RUN(args):
     if not cmd:
         return "错误：没有命令"
     if args.get("dangerous") and not confirm_block(cmd):
-        return "[已拒绝] 危险命令未执行（模型标记 dangerous=true）"
+        return "[已拒绝] 危险命令未执行"
     import select, termios, tty
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd) if sys.stdin.isatty() else None
