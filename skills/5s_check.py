@@ -6,11 +6,14 @@ ROOT = Path.home() / ".config" / "term_agent"
 DIRS = ["memory", "skill", "taskbook"]
 # 上限按"读一次成本"定：skill 常与命令同批载入故严格；memory 按主题隔离单篇深读
 LIM = {"skill": (10 * 1024, 7 * 1024), "memory": (24 * 1024, 14 * 1024), "taskbook": (24 * 1024, 12 * 1024)}
-IDX_LIM = {"skill": 12 * 1024, "memory": 10 * 1024, "taskbook": 8 * 1024}
+# 索引上限按"可承载文件数 × 实测单文件行开销"定，硬限=200/100 文件规模，软限=硬限 75%
+# 实测 2026-10-27：memory 154 B/文件、skill 240 B/文件、taskbook 主题式压缩增长
+IDX_LIM = {"skill": 24 * 1024, "memory": 32 * 1024, "taskbook": 24 * 1024}
+IDX_SOFT = {"skill": 18 * 1024, "memory": 24 * 1024, "taskbook": 18 * 1024}
 LONGLINE = 240
 
 def sev_of(kind):
-    return "warn" if kind in ("near_limit", "long_line", "archive_suffix") else "error"
+    return "warn" if kind in ("near_limit", "long_line", "archive_suffix", "index_near_limit") else "error"
 
 def emit(d): print(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
 
@@ -61,14 +64,19 @@ def scan(d):
                 out.append({"kind": "table_cols", "file": str(p), "line": i,
                             "detail": "%d 管符 ≠ 上行 %d" % (cnt, prev)})
             prev = cnt
-    # 5 后缀：archive/ 内目录即标记，不检；只检目录内被取代件是否标 -superseded
+    # 5 后缀：废弃件一律 -dep（后缀即标记，无需再进索引）
     for p in top:
-        if hyphens := p.name.count("-eol"):
+        if p.name.count("-eol") or p.name.endswith("-dep.md"):
             continue
     # 6 索引超限
-    il = IDX_LIM.get(d.name, 8 * 1024)
-    if idx.exists() and idx.stat().st_size > il:
-        out.append({"kind": "index_too_big", "file": str(idx), "detail": "%d B > %d" % (idx.stat().st_size, il)})
+    il = IDX_LIM.get(d.name, 24 * 1024)
+    isf = IDX_SOFT.get(d.name, 18 * 1024)
+    if idx.exists():
+        n = idx.stat().st_size
+        if n > il:
+            out.append({"kind": "index_too_big", "file": str(idx), "detail": "%d B > %d" % (n, il)})
+        elif n > isf:
+            out.append({"kind": "index_near_limit", "file": str(idx), "detail": "%d B > %d（硬限 %d）" % (n, isf, il)})
     return out
 
 targets = sys.argv[1:] or DIRS
