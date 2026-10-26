@@ -3,5 +3,5 @@ ctxinject.py
 videowatch.py
 00-看视频-抽帧注入上下文.md
 00-视觉注入-把目标图送进活跃上下文.md
-00-5S规范.md
+00-文档规范.md
 5s_check.py
