@@ -149,7 +149,6 @@ def confirm_block(cmd):
         pass
     print("──────────────────────────────────")
     print("⚠ 危险命令，需要键盘授权：")
-    print("   模型标记: dangerous=true")
     print(f"   命令: {cmd}")
     if AUTH_TIMEOUT > 0:
         print(f"\033[31m   [Y] 同意执行  |  [N] 拒绝  ({AUTH_TIMEOUT}秒无输入自动拒绝)\033[0m")
