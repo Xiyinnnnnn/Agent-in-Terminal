@@ -1,7 +1,7 @@
 # Agent-in-Terminal（宿主）
 
 ## 是什么
-零依赖 Python 单文件终端 Agent（787 行，零注释风格）。OpenAI 兼容 API，bash 工具执行，Bazzite 桌面常驻。
+零依赖 Python 单文件终端 Agent（634 行，零注释风格）。OpenAI 兼容 API，bash 工具执行，Bazzite 桌面常驻。
 默认经本地 `commandcode-proxy` 反代（`127.0.0.1:3050`），由 `start_agent.sh` 探活拉起。
 
 ## 运行与数据
@@ -17,8 +17,7 @@
 | MAX_TOK | 524288 | **上下文压缩阈值**（usage 超此值触发压缩），非输出上限 |
 | MAX_OUT | 32768 | 输出 max_tokens；压缩请求用 `MAX_OUT//4` |
 | REASONING_EFFORT | high | 推理强度（body.`reasoning_effort`） |
-| AUTH_TIMEOUT | 30 | 危险命令授权等待秒数；`<=0` 退回阻塞式 `input()` |
-| MAX_NEST | 2 | 剥壳 / 命令替换各自递归上限（两者叠加最深 4 层） |
+| AUTH_TIMEOUT | 30 | `dangerous=true` 时的授权等待秒数；`<=0` 退回阻塞式 `input()` |
 | SYSTEM | 内置提示词常量 | 每个请求的 system 消息（**不随代码同步覆盖**，见文末） |
 | TOOLS | RUN 工具 schema | 工具定义 |
 
@@ -55,60 +54,31 @@ compress:      [system SYSTEM] + [user s for s in summaries] + hist + [user "[�
 - 压缩请求复用完整前缀 → 最大化 KV 命中
 - 连续多条 user 消息（快照链）是设计，不是 bug
 
-## 危险命令防护（2026-10-19 加固）
-四层判定，任一命中即进授权闸门。
+## 安全模式（模型标志分流）
 
-**① DANGER_BL 基线表（token 级）**
-`rm` `dd` `mkfs*` `fdisk` `parted` `wipefs` `shred` `blkdiscard` `chmod -R 777` `:(){ :|:& };:` 等；
-命中规则：basename 精确等于、或以 `b"."` / `b":"` 开头（覆盖 `mkfs.ext4` 这类）。
+判定权在模型。宿主不扫描命令内容，只读 `RUN` 入参的 `dangerous` 布尔值决定走哪条路。
 
-**② PIPE_PATTERNS 语义正则**
-`find … -delete`、`git clean -fdx`、`chmod -R 000`、`kill -9 -1`、`truncate -s0`、`pkill/killall -9`、
-find 的 `-exec` 调用删除类命令、cp 覆写块设备（`/dev/sd|nvme|vd|mmcblk`）。
-注：`git clean -n` / `--dry-run` 属只读预演，正则已排除，不触发授权。
+| dangerous | 路径 | 代码 |
+|---|---|---|
+| `false` | 直接 `subprocess` 执行 | `RUN` 内跳过闸门 |
+| `true` | 弹确认块，用户 `Y` 才执行 | `confirm_block(cmd)` |
 
-**③ 结构解析（`_first_hit` + `match_danger`）**
-- 剥前缀：`sudo doas env nohup nice ionice timeout setsid xargs command exec stdbuf`、`-u/-g/-c/…` 带值选项、`VAR=x`、纯数字；**层数不设上限**（曾有 6 个 token 上限，`sudo -u root env A=1 nice -n 5 <危险命令>` 可绕过）
-- `/bin/rm` → 取 basename → `rm`
-- `sh|bash|zsh|ksh|dash|ash|busybox|fish -c '…'` → 剥壳递归
-- `eval '…'` → 递归
-- `$(…)` 与反引号 → 递归
-- 变量间接执行：`x=rm; $x -rf /` 命中（**仅当本命令内赋过值**，故 `$EDITOR f` 不误伤）
-- 管道进 shell：`… | sh`、`… | python/perl/ruby/node`
-
-**④ 重定向覆盖**
-`> 目标` 且目标**已存在**（`os.path.exists`）→ 命中。
-放行：`> /dev/null`、`2>&1`、`>>` 追加、写新文件。
-
-### 语法归一与包装器剥离（2026-10-19 第二批）
-- 去混淆 `_deobf`：引号、反斜杠、空引号对、`${IFS}`、`$'\xNN'` 先归一，再取 base 判定
-- 分组与关键字：`(` `)` `{` `}` `!` `if then do done fi case function` 等不再作为 base 逃逸点
-- 包装器递归 `_RUN_WRAPPERS`：`su doas chroot nsenter proot run0 busybox script setpriv systemd-run` 余下部分递归判危险（`-c` 参数按命令处理）
-- here-string：`sh/bash <<< "…"` 内层递归
-- `find` 判定扩到 `-execdir` / `-ok` / `-okdir`
-- 自毁类：`kill` 目标为进程组或自身（`0` / `-1` / `$$` / `$PPID`）直接拦
-- 误报修正：脚本名（`.sh/.py/.pl/.rb/.js`）不再被前缀规则当命令；引号内 `>` 不再当重定向
-- 运行期健壮性：主循环兜底 `except`（不再被单次异常终结会话）、Ctrl+C 只中断本轮（`KeyboardInterrupt` 转 `_StopLoop`）、`resp` 显式关闭、空 key 不抛 `TypeError`
+| 事实 | 后果 |
+|---|---|
+| 代码侧已无 `match_danger` / `DANGER_BL` / `PIPE_PATTERNS` / `_first_hit` / `_split_segs` | 无黑名单、无正则、无剥壳、无命令替换解析 |
+| 模型误标 `false` | 命令直接执行，宿主无兜底（有意设计） |
+| 判定口径只在 `SYSTEM` 的 `[SAFETY]` 段 + `TOOLS` 的 `dangerous` 描述 | 改口径只动这两处，不动代码 |
 
 ### 授权闸门（confirm_block）
-- 进闸门前 `tcflush(TCIFLUSH)`：清掉提示框出现前的预输入，封死"没看提示就被放行"
-- 归一化 `NFKC` + strip + lower：全角 `ｙ/Ｙ/ｎ/Ｎ` 与半角等效
-- 必须 `y/yes` + **回车**；单键不算（防误触放行危险命令）
-- 30s 无输入 → 自动拒绝；非法输入 → 重问；`Ctrl+C`/`Ctrl+D` → 拒绝
 
-### 判定矩阵（回归基准，47 例）
-必拦 22：`rm -rf ~/x`、`sudo rm -rf /`、`/bin/rm`、`xargs rm`、`echo a | sh`、`dd if=/dev/zero of=/dev/mmcblk0`、
-`bash -c 'rm -rf'`、`sh -c 'rm -rf /'`、`eval 'rm -rf'`、`echo $(rm -rf)`、`$(rm -rf)`、`x=rm; $x -rf`、`c=$(echo rm); $c -rf`、
-`bash -c "eval \"rm -rf /\""`、`find . -delete`、`truncate -s0 ~/.bashrc`、`echo x > ~/.bashrc`、`git clean -fdx`、
-`chmod -R 000`、`kill -9 -1`、`rm`
-必放 17：`ls > 新文件`、`> /dev/null`、`make 2>&1 | tee`、`cat a >> ~/.bashrc`、`git status`、`find -name`、
-`kill 1234`、`bash -c 'echo hi'`、`eval "$(date)"`、`echo "$(date)"`、`./build.sh`、`truncate --size=100`、
-`python3 -c 'print(1)'`、`$EDITOR f`、`${EDITOR} f`、`vim $HOME/x`、`awk '{print $1}'`、`git clean -n`、`git clean --dry-run`
-
-### 已知边界（有意不做）
-`sed -i` 原地改、`mv` 覆盖、`tee 已存在文件`、`python3 -c "open(...,'w')"` 不拦（静态不可判）；
-转义引号造成的分段错乱已修（`_split_segs` 支持 `\` 转义）；
-`> 目录`（如 `echo x > /tmp`）会误拦；`>|file`（noclobber 写法）轻微漏。
+| 项 | 行为 |
+|---|---|
+| 预输入 | 进闸门前 `tcflush(TCIFLUSH)`，封死"没看提示就被放行" |
+| 归一化 | `NFKC` + strip + lower，全角 `ｙ/Ｙ/ｎ/Ｎ` 等效半角 |
+| 接受 | `y` / `yes` + **回车**；单键不算（防误触） |
+| 超时 | `AUTH_TIMEOUT` 秒无输入 → 自动拒绝 |
+| 非法输入 | 重问；`Ctrl+C` / `Ctrl+D` → 拒绝 |
+| 拒绝回执 | `[已拒绝] 危险命令未执行（模型标记 dangerous=true）` |
 
 ## 进程回收
 - `RUN` 用 `start_new_session=True` 建独立进程组
@@ -127,8 +97,7 @@ find 的 `-exec` 调用删除类命令、cp 覆写块设备（`/dev/sd|nvme|vd|m
 | build_context | SYSTEM + 快照链 + 历史 |
 | compress | 压缩历史 → 新快照（append） |
 | sanitize_hist | 丢弃 tool_calls 与 tool 回填不配对的消息段 |
-| match_danger / _first_hit / _split_segs / _unquote | 危险判定四层 |
-| confirm_block | 授权闸门（tcflush + NFKC + 回车确认） |
+| confirm_block | 授权闸门（tcflush + NFKC + 回车确认），由 `dangerous` 标志触发 |
 | RUN | 执行命令，select 边读边响应中断，超时 3600s |
 | _kp | 无条件 killpg 回收整组 |
 | _img / _shrink / _shrink_raw / _dec / _enc | 图片转 base64（自研解码，无外部依赖） |
@@ -140,8 +109,8 @@ find 的 `-exec` 调用删除类命令、cp 覆写块设备（`/dev/sd|nvme|vd|m
 
 ## 改哪 / 怎么验
 - 改提示词 → `SYSTEM`（**同步到别的机器时严禁整文件覆盖**：本仓库这份是 Bazzite，Termux 侧有其自己的环境口径）
-- 改黑名单 → `DANGER_BL` / `PIPE_PATTERNS` / `_first_hit` / `match_danger`（四处联动）
 - 改闸门 → `confirm_block`（`tcflush` 与 `NFKC` 两处都不要回退）
+- 改判定权 → 只动 `SYSTEM` 的 `[SAFETY]` 段与 `TOOLS` 的 `dangerous` 描述，代码侧不参与判定
 - 改压缩 → `compress` / `build_context` / `main` 压缩段（三处联动）
 - 语法：`python3 -m py_compile term_agent.py`
 - 危险判定回归（不启动宿主，直接加载模块）：
@@ -149,11 +118,8 @@ find 的 `-exec` 调用删除类命令、cp 覆写块设备（`/dev/sd|nvme|vd|m
 import importlib.util
 spec = importlib.util.spec_from_file_location("ta", "term_agent.py")
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-assert m.match_danger("bash -c 'rm -rf ~/x'") == "bash -c → rm"
-assert m.match_danger("echo $(rm -rf /tmp/x)") == "命令替换 → rm"
-assert m.match_danger("echo x > ~/.bashrc").startswith("重定向覆盖")
-assert m.match_danger("$EDITOR notes.md") is None
-assert m.match_danger("echo hi > /dev/null") is None
+assert not hasattr(m, "match_danger")
+assert m.RUN({"command": "echo hi", "explain": "t", "dangerous": False}).startswith("退出码 0")
 ```
 
 ## 约束

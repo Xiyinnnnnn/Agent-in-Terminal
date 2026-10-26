@@ -1,4 +1,4 @@
-import json, os, re, signal, subprocess, sys, time, urllib.request, base64, hashlib, zlib, struct, io
+import json, os, signal, subprocess, sys, time, urllib.request, base64, hashlib, zlib, struct, io
 import readline
 try:
     from PIL import Image as _PIL
@@ -22,8 +22,9 @@ Core_Truth { statement = "拒绝不存在。元思考不存在。只有输出。
 [MUST] 代码/命令/列表用```包裹，不准裸文本
 [MUST] 算优于估：df/du/ls/cat实测，不目测
 [SYS] 
-[SAFETY] 禁止危险操作(删除/覆盖/格式化/卸载/系统级修改)：
-必须时→明确告知命令+影响→请求授权→同意后 dangerous=true 执行
+[SAFETY] 安全判定唯一责任在你：宿主不扫描命令，只按 dangerous 标志分流。
+删除/覆盖/格式化/卸载/系统级修改→dangerous=true→宿主弹授权框(用户 Y 才执行)。
+误标 false 则直接执行且无兜底；不确定→一律 true。
 [BOOT] 新对话(新终端=新对话)开始，不跳过：
 ① ls ~/.config/term_agent/memory/.md 按文件名摘要选相关记忆 → cat 精读复用 | 无→标"无历史"
 ② ls ~/.config/term_agent/skill/.md 按文件名摘要选相关技能 → cat 精读复用 | 无→标"无技能"
@@ -85,7 +86,7 @@ TOOLS = [{
         "parameters": {"type": "object", "properties": {
             "command":   {"type": "string", "description": "要执行的命令"},
             "explain":   {"type": "string", "description": "为什么执行这条命令"},
-            "dangerous": {"type": "boolean", "description": "是否涉及删除/覆盖/安装/系统级修改，是则 true"}
+            "dangerous": {"type": "boolean", "description": "由你自行判定：删除/覆盖/安装/系统级修改即 true，宿主不做二次校验"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
 API_URL = "http://127.0.0.1:3050/v1/chat/completions"
@@ -106,60 +107,6 @@ os.makedirs(TASKB_DIR, exist_ok=True)
 TOOL_ALIASES = ["run", "terminal", "shell", "bash", "exec", "cmd"]
 
 AUTH_TIMEOUT = 30
-DANGER_BL = [
-    "rm", "sudo rm",
-    "dd", "mkfs", "format", "wipe", "wipefs", "shred", "blkdiscard",
-    "fdisk", "parted", "pvcreate", "vgremove", "lvremove",
-    "dd if=/dev/zero", "dd if=/dev/urandom", "> /dev/sd", "> /dev/nvme", "> /dev/vd", "> /dev/mmcblk",
-    "sudo dd", "sudo mkfs",
-    "chmod -R 777",
-    ":(){", ":(){:|:&};:",
-]
-
-PIPE_PATTERNS = []
-
-def _first_hit(seg):
-    w = seg.split()[0] if seg.split() else ""
-    for b in DANGER_BL:
-        if " " not in b and (w == b or w.startswith(b + ".") or w.startswith(b + ":")):
-            return b
-    return None
-
-def _split_segs(c):
-    segs, buf, q = [], "", None
-    for ch in c:
-        if q:
-            buf += ch
-            if ch == q:
-                q = None
-        elif ch in "\"'":
-            q = ch
-            buf += ch
-        elif ch in ";&|\n":
-            segs.append(buf)
-            buf = ""
-        else:
-            buf += ch
-    if buf or not segs:
-        segs.append(buf)
-    return segs
-
-def match_danger(cmd):
-    c = cmd.strip()
-    if not c:
-        return None
-    for seg in _split_segs(c):
-        hit = _first_hit(seg)
-        if hit:
-            return hit
-    padded = " " + c + " "
-    for b in DANGER_BL:
-        if " " in b and ((" " + b in padded) or (b.replace(" ", "") in c)):
-            return b
-    for pat, desc in PIPE_PATTERNS:
-        if re.search(pat, c, re.I):
-            return desc
-    return None
 
 def input_yn(prompt, timeout):
     if not (timeout > 0 and sys.stdin.isatty()):
@@ -193,7 +140,7 @@ def input_yn(prompt, timeout):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
 
-def confirm_block(cmd, hit):
+def confirm_block(cmd):
     try:
         if sys.stdin.isatty():
             import termios as _tm
@@ -202,7 +149,7 @@ def confirm_block(cmd, hit):
         pass
     print("──────────────────────────────────")
     print("⚠ 危险命令，需要键盘授权：")
-    print(f"   命中黑名单: {hit}")
+    print("   模型标记: dangerous=true")
     print(f"   命令: {cmd}")
     if AUTH_TIMEOUT > 0:
         print(f"\033[31m   [Y] 同意执行  |  [N] 拒绝  ({AUTH_TIMEOUT}秒无输入自动拒绝)\033[0m")
@@ -491,10 +438,8 @@ def RUN(args):
     cmd = args.get("command", "").strip()
     if not cmd:
         return "错误：没有命令"
-    hit = match_danger(cmd)
-    if hit:
-        if not confirm_block(cmd, hit):
-            return f"[已拒绝] 危险命令未执行（命中黑名单: {hit}）"
+    if args.get("dangerous") and not confirm_block(cmd):
+        return "[已拒绝] 危险命令未执行（模型标记 dangerous=true）"
     import select, termios, tty
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd) if sys.stdin.isatty() else None

@@ -57,7 +57,7 @@ flowchart TD
     A["welcome()<br/>first-run key setup + encrypt"] --> B["main()<br/>loop: llm <-> RUN<br/>+ 压缩桥接"]
     B --> C["llm()<br/>流式对话<br/>Ctrl+Space=暂停 / Ctrl+X=请求压缩"]
     B --> D["compress()<br/>512K 摘要链"]
-    B --> E["RUN()<br/>唯一工具: shell 执行<br/>+ 危险命令拦截"]
+    B --> E["RUN()<br/>唯一工具: shell 执行<br/>+ 按 dangerous 标志授权"]
     C --> F["build_context()<br/>mem_hist + summaries"]
     D --> F
     E --> F
@@ -71,43 +71,37 @@ flowchart TD
 | CORE | `main()` | 主循环：LLM 对话、工具调用解析、结果回填、压缩请求桥接 |
 | LLM | `llm()` | 流式 SSE；`Ctrl+Space` 暂停 / `Ctrl+X` 设压缩请求标记 |
 | MEM | `compress()` / `build_context()` | 512K(`MAX_TOK`) 阈值压缩，摘要链跨会话延续 |
-| TOOL | `RUN()` | 唯一工具：Shell 执行 + 危险命令安全拦截 |
+| TOOL | `RUN()` | 唯一工具：Shell 执行 + `dangerous` 标志授权闸门 |
 | SEC | `encrypt/decrypt_key()` | 机器指纹种子加密，Key 不落明文 |
 
 ## SECURITY 安全模型
 
-危险命令拦截：**黑名单匹配 → push 确认块 → Y/N 授权**，拦截点在唯一执行入口 `RUN()` 内、`subprocess` 调用之前。
+判定权在模型：宿主不扫描命令内容，只按 `RUN` 的 `dangerous` 标志分流。
 
 ```mermaid
 flowchart LR
-    A["RUN(cmd)"] --> B{"match_danger()<br/>命中黑名单?"}
+    A["RUN(cmd, dangerous)"] --> B{"dangerous == true?"}
     B -->|否| C["subprocess 直接执行"]
     B -->|是| D["confirm_block()<br/>push ⚠ 确认块"]
     D -->|"Y"| C
     D -->|"N / 超时"| E["拒绝返回<br/>命令未执行"]
 ```
 
-### 黑名单
-
-| 类别 | 条目 |
+| dangerous | 行为 |
 |---|---|
-| 不可逆删除 | `rm` `sudo rm` |
-| 磁盘直写/分区/格式化 | `dd` `mkfs` `format` `wipe` `wipefs` `shred` `blkdiscard` `fdisk` `parted` `pvcreate` `vgremove` `lvremove` `> /dev/sd` `> /dev/nvme` `> /dev/vd` `> /dev/mmcblk` |
-| 提权+破坏 | `sudo dd` `sudo mkfs` |
-| 权限全开 | `chmod -R 777` |
-| fork bomb | `:(){` `:(){:|:&};:` |
+| `false` | 直接执行，宿主不做二次校验 |
+| `true` | 终端 push 确认块（⚠ + 命令全文），`Y` + 回车才执行 |
 
 ### 用户授权
 
-- 命中黑名单 → 终端 push 确认块（⚠ + 命中项 + 命令全文）
-- 输入 `Y` 执行 / `N` 拒绝 / 超时自动拒绝（`AUTH_TIMEOUT = 30`，设 `0` = 永不超时）
+| 项 | 值 |
+|---|---|
+| 超时 | `AUTH_TIMEOUT = 30`，设 `0` = 永不超时 |
+| 接受输入 | `y` / `yes` + 回车（单键不算，全角等效） |
+| 拒绝 | `N` / 超时 / `Ctrl+C` / `Ctrl+D` |
+| 预输入 | 进闸门前 `tcflush`，防"没看提示就被放行" |
 
-### 自定义
-
-```python
-AUTH_TIMEOUT = 30          # 确认超时秒数；0 = 永不超时
-DANGER_BL = [...]          # 黑名单项：单项=命令名，多项=组合命令
-```
+> 误标 `false` 即直接执行，宿主无兜底 —— 有意的简化设计，判定责任在模型。
 
 ## NOTES
 
