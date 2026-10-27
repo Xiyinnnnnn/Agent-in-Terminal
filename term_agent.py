@@ -355,7 +355,8 @@ def _shrink_raw(b,lg=None):
     except Exception: return None
 
 _IMG_EXT=('.jpg','.jpeg','.png','.gif','.webp','.bmp','.tif','.tiff')
-_BADIMG="以下图片损坏，请提示用户"
+def _badimg(bad):
+    return "以下图片损坏，请提示用户："+" ".join(os.path.basename(x) for x in bad)
 
 def _img(q):
     import shlex
@@ -375,8 +376,8 @@ def _img(q):
         s=_shrink(p)
         if s is None: bad.append(p); continue
         b.append(base64.b64encode(s).decode())
-    if not b: return _BADIMG
-    c=[{'type':'text','text':head if not bad else head+"\n"+_BADIMG}]
+    if not b: return _badimg(bad)
+    c=[{'type':'text','text':head if not bad else head+"\n"+_badimg(bad)}]
     c+=[{"type":"image_url","image_url":{"url":"data:image/png;base64,"+x,"detail":"low"}} for x in b]
     return c
 
