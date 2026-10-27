@@ -385,7 +385,7 @@ def compress(hist, summaries=None):
     msgs = []
     for s in summaries or []:
         msgs.append({"role": "user", "content": s})
-    msgs += [dict(m,content='[图]') if isinstance(m.get('content'),list) else m for m in hist]
+    msgs += hist
     msgs.append({"role": "user", "content": "[总结所有]"})
     for _ in range(10):
         print("正在压缩", flush=True)
