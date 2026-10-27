@@ -321,6 +321,9 @@ def _pil():
         except Exception:
             return None
     return _PIL
+def _nopil(r):
+    print("[提示] 未安装 Pillow，图片未解码：pip install pillow 后提示用户重新输入图片", flush=True)
+    return r
 def _resize(im,lg):
     w,h=im.size
     if max(w,h)<=lg: return im
@@ -365,9 +368,7 @@ def _img(q):
         else: text.append(x)
     if not imgs: return q
     head=' '.join(text) or f'{len(imgs)}张图'
-    if _pil() is None:
-        print("[提示] 未安装 Pillow，图片未解码：pip install pillow 后提示用户重新输入图片", flush=True)
-        return head
+    if _pil() is None: return _nopil(head)
     b=[]; bad=[]
     for p in imgs:
         s=_shrink(p)
