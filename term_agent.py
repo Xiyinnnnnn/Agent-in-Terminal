@@ -86,7 +86,7 @@ TOOLS = [{
         "parameters": {"type": "object", "properties": {
             "command":   {"type": "string", "description": "要执行的命令"},
             "explain":   {"type": "string", "description": "为什么执行这条命令"},
-            "dangerous": {"type": "boolean", "description": "由你自行判定：删除/覆盖/安装/系统级修改即 true，宿主不做二次校验"}
+            "dangerous": {"type": "boolean", "description": "危险操作→true"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
 API_URL = "http://127.0.0.1:3050/v1/chat/completions"
