@@ -366,8 +366,8 @@ def _img(q):
     if not imgs: return q
     head=' '.join(text) or f'{len(imgs)}张图'
     if _pil() is None:
-        return (head+"\n[图片读取错误：本机没有 Pillow，图片未解码] "+' '.join(imgs)
-                +"\n请先执行 pip install pillow，装完重新发送该路径即可，无需重启。")
+        print("[提示] 未安装 Pillow，图片未解码：pip install pillow 后提示用户重新输入图片", flush=True)
+        return head
     b=[]; bad=[]
     for p in imgs:
         s=_shrink(p)
