@@ -355,6 +355,7 @@ def _shrink_raw(b,lg=None):
     except Exception: return None
 
 _IMG_EXT=('.jpg','.jpeg','.png','.gif','.webp','.bmp','.tif','.tiff')
+_BADIMG="以下图片损坏，请提示用户"
 
 def _img(q):
     import shlex
@@ -374,10 +375,8 @@ def _img(q):
         s=_shrink(p)
         if s is None: bad.append(p); continue
         b.append(base64.b64encode(s).decode())
-    if not b:
-        return (head+"\n[图片读取错误：无法解码 "+' '.join(bad)+"] 文件可能损坏或格式不受支持"
-                +"\n可 pip install --upgrade pillow 后重发。")
-    c=[{'type':'text','text':head}]
+    if not b: return _BADIMG
+    c=[{'type':'text','text':head if not bad else head+"\n"+_BADIMG}]
     c+=[{"type":"image_url","image_url":{"url":"data:image/png;base64,"+x,"detail":"low"}} for x in b]
     return c
 
