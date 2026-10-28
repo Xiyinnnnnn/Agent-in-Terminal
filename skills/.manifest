@@ -5,3 +5,5 @@ videowatch.py
 00-视觉注入-把目标图送进活跃上下文.md
 00-文档规范.md
 5s_check.py
+subagent.py
+00-subagent-启动等待与授权回传.md
