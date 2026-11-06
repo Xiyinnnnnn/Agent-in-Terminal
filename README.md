@@ -9,20 +9,9 @@
 
 ## QUICK START
 
-全球 CDN 一键安装（国内直连，无需代理）：
-
 ```bash
 curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/install.sh | bash
 ```
-
-GitHub 直连（海外用户）：
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/Xiyinnnnnn/Agent-in-Terminal/main/install.sh | bash
-```
-
-> 脚本内部自动双源回退：优先走 jsDelivr CDN，失败自动切 GitHub raw，无需手动选择。
-> 同时把仓库 `skills/` 目录**原样复刻**到 `~/.config/term_agent/skill/`（原厂技能；以后新增技能只需往仓库丢文件，安装脚本无需改动）。
 
 首次运行输入 DeepSeek API Key：
 
@@ -33,10 +22,8 @@ curl -fsSL https://raw.githubusercontent.com/Xiyinnnnnn/Agent-in-Terminal/main/i
 ## USAGE
 
 ```bash
-# 命令行
-python3 ~/.local/bin/term_agent/term_agent.py
-
-# 或应用菜单搜索「终端智能体」双击
+# Linux：python3 ~/.local/bin/term_agent/term_agent.py
+# Termux：agent
 ```
 
 API 端点与模型写在 `term_agent.py` 顶部常量中（`API_URL` / `MODEL` / `MAX_TOK` / `MAX_OUT`），可自行修改。
@@ -100,37 +87,15 @@ flowchart LR
 | 超时 | `AUTH_TIMEOUT = 30`，设 `0` = 永不超时 |
 | 接受输入 | `y` / `yes` + 回车（单键不算，全角等效） |
 | 拒绝 | `N` / 超时 / `Ctrl+C` / `Ctrl+D` |
-| 预输入 | 进闸门前 `tcflush`，防"没看提示就被放行" |
-
-> 误标 `false` 即直接执行，宿主无兜底 —— 有意的简化设计，判定责任在模型。
 
 ## NOTES
 
 - 新终端 = 新对话（每个终端会话独立上下文）
 - `Ctrl+Space` = 暂停；`Ctrl+X` = 请求压缩
-- 想改参数？直接对它说「修改你的程序参数」
-- 压缩阈值 / 模型 / 上限写死在程序里，让它自己改
 
 ## UPDATE 如何更新
 
-安装脚本是**幂等**的：重复执行安装命令即可覆盖更新程序文件，不会动你的配置和记忆：
-
-```bash
-# 方式一：重新执行安装命令（推荐，覆盖 term_agent.py / .desktop / skills/ 目录）
-curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/install.sh | bash
-```
-
-```bash
-# 方式二：只更新主程序（脚本装好后的日常更新用这个最快）
-curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/term_agent.py -o ~/.local/bin/term_agent/term_agent.py
-```
-
-```bash
-# 方式三：直接对 agent 说「更新你自己」（它自带 shell 工具，会自己拉取）
-```
-
-> 安全：重跑安装命令不会覆盖 `~/.config/term_agent/` 下的 `key.bin`、`memory/` 与你自己写的技能；
-> 只有 `skill/` 里与仓库同名的**原厂技能**会被覆盖更新（整目录跟随仓库，删掉仓库里的技能、重装即同步移除）。
+安装脚本是**幂等**的：重复执行安装命令即可覆盖更新程序文件
 
 ## LICENSE
 
