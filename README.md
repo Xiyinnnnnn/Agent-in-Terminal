@@ -14,15 +14,13 @@ curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/install
 ```
 
 首次运行输入 DeepSeek API Key：
-
-- 输入不可见（getpass）
-- 机器绑定加密落盘（`~/.config/term_agent/key.bin`）
-- 唯一落盘项，不出现明文
+- 加密落盘（`~/.config/term_agent/key.bin`）
 
 ## USAGE
 
 ```bash
 # Linux：python3 ~/.local/bin/term_agent/term_agent.py
+
 # Termux：agent
 ```
 
