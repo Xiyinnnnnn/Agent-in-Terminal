@@ -89,9 +89,9 @@ TOOLS = [{
             "dangerous": {"type": "boolean", "description": "危险操作→true"}
         }, "required": ["command", "explain", "dangerous"]}}}]
 
-API_URL = "http://127.0.0.1:3050/v1/chat/completions"
-MODEL   = "deepseek/deepseek-v4-flash"
-MAX_TOK = 524288
+API_URL = "https://api.deepseek.com/chat/completions"
+MODEL   = os.environ.get("TERM_AGENT_MODEL", "deepseek-flash").strip() or "deepseek-flash"
+MAX_TOK = 900000
 MAX_OUT = 32768
 MAX_READ = 30000
 REASONING_EFFORT = "high"
@@ -189,6 +189,9 @@ def decrypt_key(s):
     return bytes(b ^ mk[i % len(mk)] for i, b in enumerate(base64.b64decode(s))).decode()
 
 def load_api_key():
+    env_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
+    if env_key:
+        return env_key
     if os.path.exists(KEY_FILE):
         try:
             return decrypt_key(open(KEY_FILE, encoding="utf-8").read().strip())
@@ -216,7 +219,7 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
         body["stream"] = True
         body["stream_options"] = {"include_usage": True}
     req = urllib.request.Request(API_URL, data=json.dumps(body).encode("utf-8"),
-        headers={"Content-Type": "application/json", "Authorization": "Bearer " + str(API_KEY or ""), "User-Agent": "curl/8.5.0"})
+        headers={"Content-Type": "application/json", "Authorization": "Bearer " + str(API_KEY or ""), "User-Agent": "Agent-in-Terminal/1.0"})
     content, usage, resp = "", None, None
     try:
         resp = urllib.request.urlopen(req, timeout=600)
@@ -292,13 +295,24 @@ def llm(messages, with_tools=True, stream=True, max_tokens=MAX_OUT, think=True):
             if old is not None:
                 termios.tcsetattr(fd, termios.TCSADRAIN, old)
     except urllib.error.HTTPError as e:
-        print(f"\n[API错误 {e.code}] {e.read().decode('utf-8','ignore')[:300]}")
+        detail = e.read().decode("utf-8", "ignore")[:1200]
+        print(f"\n[DeepSeek API 错误 HTTP {e.code}] {detail}")
+        if e.code in (401, 403):
+            print("请检查 DEEPSEEK_API_KEY / 已保存的 API Key 是否有效。")
+        elif e.code == 429:
+            print("请求触发限流或余额/额度限制，请稍后重试并检查 DeepSeek 控制台。")
         if content:
             return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
         return "API_ERROR"
     except _StopLoop:
         raise
-    except Exception:
+    except urllib.error.URLError as e:
+        print(f"\n[DeepSeek 网络错误] {getattr(e, 'reason', e)}")
+        if content:
+            return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
+        return None
+    except Exception as e:
+        print(f"\n[请求异常] {type(e).__name__}: {e}")
         if content:
             return {"choices": [{"message": {"role": "assistant", "content": content}, "finish_reason": None}], "usage": usage, "truncated": True}
         return None
