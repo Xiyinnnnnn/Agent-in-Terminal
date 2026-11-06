@@ -1,86 +1,141 @@
 # AGENT IN TERMINAL
 
-[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Termux-green.svg)]()
+![license](https://img.shields.io/badge/license-MIT-1e90ff?style=flat-square)
+![python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square)
+![deps](https://img.shields.io/badge/dependencies-Pillow-2ea44f?style=flat-square)
+![platform](https://img.shields.io/badge/platform-linux%20%7C%20termux-f59e0b?style=flat-square)
 
-A lightweight AI agent that lives in your terminal.
-
-基于 DeepSeek 官方 API，支持 Shell 工具执行、上下文压缩、Skills 扩展与多代理协作。
+超轻量终端内 AI Agent：单文件，DeepSeek 对话 + Shell 工具执行。
 
 ## QUICK START
 
-**一键安装**
+全球 CDN 一键安装（国内直连，无需代理）：
+
+```bash
+curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/install.sh | bash
+```
+
+GitHub 直连（海外用户）：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Xiyinnnnnn/Agent-in-Terminal/main/install.sh | bash
 ```
 
-安装脚本会自动：
+> 脚本内部自动双源回退：优先走 jsDelivr CDN，失败自动切 GitHub raw，无需手动选择。
+> 同时把仓库 `skills/` 目录**原样复刻**到 `~/.config/term_agent/skill/`（原厂技能；以后新增技能只需往仓库丢文件，安装脚本无需改动）。
 
-- 判断当前环境（Linux / Termux）。
-- 安装对应系统依赖。
-- 检查并准备 Python 运行环境。
-- 安装 Pillow（PIL）图像处理依赖。
-- 安装 Agent 主程序及 Skills。
-- 根据平台配置启动入口：
-  - **Termux**：配置 `agent` 快捷命令。
-  - **Linux**：创建桌面快捷方式。
+首次运行输入 DeepSeek API Key：
 
-首次运行时按提示配置 DeepSeek API Key。
+- 输入不可见（getpass）
+- 机器绑定加密落盘（`~/.config/term_agent/key.bin`）
+- 唯一落盘项，不出现明文
 
-首次启动时按提示配置 DeepSeek API Key。
+## USAGE
 
-## KEY BINDINGS
+```bash
+# 命令行
+python3 ~/.local/bin/term_agent/term_agent.py
 
-| Key | Action |
+# 或应用菜单搜索「终端智能体」双击
+```
+
+API 端点与模型写在 `term_agent.py` 顶部常量中（`API_URL` / `MODEL` / `MAX_TOK` / `MAX_OUT`），可自行修改。
+
+## KEY BINDINGS 快捷键
+
+| 按键 | 行为 |
 |---|---|
-| `Ctrl + Space` | 暂停当前执行并返回提示符 |
-| `Ctrl + X` | 请求压缩上下文 |
+| `Ctrl+Space` | 立即暂停当前执行（不退出，回到提示符） |
+| `Ctrl+X` | 请求压缩当前上下文（不打断执行；当前步骤自然结束后进入压缩流程） |
+
+> 启动横幅：`新终端=新对话 | Ctrl+Space=暂停 | Ctrl+X=压缩`
+> `Ctrl+X` 只设置请求标记，多次按下合并为一次压缩，不立即执行、不中断 LLM / Shell。
 
 ## ARCHITECTURE
 
-```text
-Agent-in-Terminal/
-├── term_agent.py       # Agent 主程序
-├── install.sh          # 自动安装脚本
-├── launch.sh           # 启动入口
-├── skills/             # Skills 扩展
-└── doc/                # 项目文档
+```mermaid
+flowchart TD
+    A["welcome()<br/>first-run key setup + encrypt"] --> B["main()<br/>loop: llm <-> RUN<br/>+ 压缩桥接"]
+    B --> C["llm()<br/>流式对话<br/>Ctrl+Space=暂停 / Ctrl+X=请求压缩"]
+    B --> D["compress()<br/>512K 摘要链"]
+    B --> E["RUN()<br/>唯一工具: shell 执行<br/>+ 按 dangerous 标志授权"]
+    C --> F["build_context()<br/>mem_hist + summaries"]
+    D --> F
+    E --> F
+    F --> G["key store<br/>encrypt/decrypt 机器种子"]
+    F --> H["memory / skill / taskbook<br/>~/.config/term_agent/*.md"]
 ```
 
-**Runtime**
+| 层 | 组件 | 职责 |
+|---|---|---|
+| ENTRY | `welcome()` | 首次运行引导，Key 加密入库 |
+| CORE | `main()` | 主循环：LLM 对话、工具调用解析、结果回填、压缩请求桥接 |
+| LLM | `llm()` | 流式 SSE；`Ctrl+Space` 暂停 / `Ctrl+X` 设压缩请求标记 |
+| MEM | `compress()` / `build_context()` | 512K(`MAX_TOK`) 阈值压缩，摘要链跨会话延续 |
+| TOOL | `RUN()` | 唯一工具：Shell 执行 + `dangerous` 标志授权闸门 |
+| SEC | `encrypt/decrypt_key()` | 机器指纹种子加密，Key 不落明文 |
 
-- Python 3.10+
-- Pillow（PIL）
-- DeepSeek Official API
+## SECURITY 安全模型
 
-## SECURITY
+判定权在模型：宿主不扫描命令内容，只按 `RUN` 的 `dangerous` 标志分流。
 
-- API Key 优先从环境变量读取。
-- 本地 Key 保存在 `~/.config/term_agent/key.bin`。
-- 不要将 API Key 提交到 Git 仓库或公开日志。
-- 执行命令前注意检查危险操作。
+```mermaid
+flowchart LR
+    A["RUN(cmd, dangerous)"] --> B{"dangerous == true?"}
+    B -->|否| C["subprocess 直接执行"]
+    B -->|是| D["confirm_block()<br/>push ⚠ 确认块"]
+    D -->|"Y"| C
+    D -->|"N / 超时"| E["拒绝返回<br/>命令未执行"]
+```
+
+| dangerous | 行为 |
+|---|---|
+| `false` | 直接执行，宿主不做二次校验 |
+| `true` | 终端 push 确认块（⚠ + 命令全文），`Y` + 回车才执行 |
+
+### 用户授权
+
+| 项 | 值 |
+|---|---|
+| 超时 | `AUTH_TIMEOUT = 30`，设 `0` = 永不超时 |
+| 接受输入 | `y` / `yes` + 回车（单键不算，全角等效） |
+| 拒绝 | `N` / 超时 / `Ctrl+C` / `Ctrl+D` |
+| 预输入 | 进闸门前 `tcflush`，防"没看提示就被放行" |
+
+> 误标 `false` 即直接执行，宿主无兜底 —— 有意的简化设计，判定责任在模型。
 
 ## NOTES
 
-- 支持 Linux 与 Termux（Android）。
-- 安装脚本会根据运行环境选择依赖安装方式。
-- `tmux`、`ffmpeg`、`yt-dlp`、`adb` 等工具用于部分扩展 Skill，具体功能取决于对应工具是否安装。
-- Agent 需要可用的 DeepSeek API Key 和网络连接。
+- 新终端 = 新对话（每个终端会话独立上下文）
+- `Ctrl+Space` = 暂停；`Ctrl+X` = 请求压缩
+- 想改参数？直接对它说「修改你的程序参数」
+- 压缩阈值 / 模型 / 上限写死在程序里，让它自己改
 
-## UPDATE
+## UPDATE 如何更新
+
+安装脚本是**幂等**的：重复执行安装命令即可覆盖更新程序文件，不会动你的配置和记忆：
 
 ```bash
-agent-update
+# 方式一：重新执行安装命令（推荐，覆盖 term_agent.py / .desktop / skills/ 目录）
+curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/install.sh | bash
 ```
 
-也可以重新执行一键安装命令。
+```bash
+# 方式二：只更新主程序（脚本装好后的日常更新用这个最快）
+curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/term_agent.py -o ~/.local/bin/term_agent/term_agent.py
+```
+
+```bash
+# 方式三：直接对 agent 说「更新你自己」（它自带 shell 工具，会自己拉取）
+```
+
+> 安全：重跑安装命令不会覆盖 `~/.config/term_agent/` 下的 `key.bin`、`memory/` 与你自己写的技能；
+> 只有 `skill/` 里与仓库同名的**原厂技能**会被覆盖更新（整目录跟随仓库，删掉仓库里的技能、重装即同步移除）。
 
 ## LICENSE
 
-MIT License
+MIT
 
-## Extras
+## Extras 扩展
 
-[Agent-Channel](https://github.com/Xiyinnnnnn/Agent-Channel)：独立的微信 / QQ 遥控通道项目。
+- **Agent-Channel（微信/QQ 遥控通道）**：已独立为单独仓库 → [Xiyinnnnnn/Agent-Channel](https://github.com/Xiyinnnnnn/Agent-Channel)
