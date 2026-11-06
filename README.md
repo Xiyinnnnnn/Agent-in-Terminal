@@ -23,7 +23,11 @@ curl -fsSL https://raw.githubusercontent.com/Xiyinnnnnn/Agent-in-Terminal/main/i
 - 检查并准备 Python 运行环境。
 - 安装 Pillow（PIL）图像处理依赖。
 - 安装 Agent 主程序及 Skills。
-- 配置 `agent` 快捷启动命令。
+- 根据平台配置启动入口：
+  - **Termux**：配置 `agent` 快捷命令。
+  - **Linux**：创建桌面快捷方式。
+
+首次运行时按提示配置 DeepSeek API Key。
 
 安装完成后，直接运行：
 
