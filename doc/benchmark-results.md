@@ -1,5 +1,7 @@
 # 测试结果说明 — 三模型 Long-Horizon Recovery Benchmark
 
+> 历史实验结果（2026-09）：下列结果是在当时记录的 `cc-proxy (127.0.0.1:3050)` 与旧模型路由下测得，仅用于保留实验可复现性；不代表当前默认 API 配置。当前运行配置见 `doc/dev.md`。
+
 > 2026-09-08~09 真机执行 ｜ 13 run 全部有效，0 invalid
 > 环境：term_agent.py @730fe87 + logforge 多阶段任务 + bwrap 隔离沙箱 + cc-proxy（127.0.0.1:3050）
 

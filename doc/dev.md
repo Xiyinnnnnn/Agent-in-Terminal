@@ -1,32 +1,59 @@
-# Agent-in-Terminal（宿主）
-
-## 是什么
-零依赖 Python 单文件终端 Agent（634 行，零注释风格）。OpenAI 兼容 API，bash 工具执行，Bazzite 桌面常驻。
-默认经本地 `commandcode-proxy` 反代（`127.0.0.1:3050`），由 `start_agent.sh` 探活拉起。
+# Agent-in-Terminal（宿主开发说明）
 
 ## 运行与数据
-- 入口：本目录 `term_agent.py`（python3 直跑，零依赖）
-- 桌面：`~/Desktop/term-agent.desktop` → `python3 ~/.local/bin/term_agent/term_agent.py`
-- 数据：`~/.config/term_agent/` = `key.bin`（加密 API Key）+ `memory/` `skill/` `taskbook/`（agent 自产 md）
 
-## 全局常量
-| 常量 | 值 | 用途 |
+- 主入口：`term_agent.py`，Python 3.10+，仅依赖标准库。
+- 默认 API：DeepSeek 官方 Chat Completions。
+- Termux 安装器：`install.sh`。
+- Termux 启动命令：`agent`；更新命令：`agent-update`。
+- 配置目录：`~/.config/term_agent/`，包含 `key.bin`、`memory/`、`skill/`、`taskbook/`。
+- 环境变量：`DEEPSEEK_API_KEY`（Key）、`TERM_AGENT_MODEL`（模型 ID）。
+
+## DeepSeek 官方 API 配置
+
+| 项 | 默认值 | 说明 |
 |---|---|---|
-| API_URL | `http://127.0.0.1:3050/v1/chat/completions` | 本地反代（OpenAI 兼容） |
-| MODEL | `deepseek/deepseek-v4-flash` | CC 上游模型 ID（形如 `vendor/model`） |
-| MAX_TOK | 524288 | **上下文压缩阈值**（usage 超此值触发压缩），非输出上限 |
-| MAX_OUT | 32768 | 输出 max_tokens；压缩请求用 `MAX_OUT//4` |
-| REASONING_EFFORT | high | 推理强度（body.`reasoning_effort`） |
-| AUTH_TIMEOUT | 30 | `dangerous=true` 时的授权等待秒数；`<=0` 退回阻塞式 `input()` |
-| SYSTEM | 内置提示词常量 | 每个请求的 system 消息（**不随代码同步覆盖**，见文末） |
-| TOOLS | RUN 工具 schema | 工具定义 |
+| API_URL | `https://api.deepseek.com/chat/completions` | 官方 OpenAI 兼容端点 |
+| MODEL | `deepseek-flash` | `TERM_AGENT_MODEL` 可覆盖 |
+| MAX_TOK | 900000 | 响应 usage.total_tokens 超阈值后请求压缩 |
+| MAX_OUT | 32768 | 单次请求 `max_tokens` |
+| REASONING_EFFORT | `high` | 官方推理强度参数 |
+| AUTH_TIMEOUT | 30 | `dangerous=true` 授权等待秒数；非 TTY/<=0 使用阻塞输入 |
+
+官方参考：
+- https://api-docs.deepseek.com/zh-cn/
+- https://api-docs.deepseek.com/zh-cn/api/create-chat-completion/
+- https://api-docs.deepseek.com/zh-cn/quick_start/pricing/
+
+### 请求映射
+
+| Agent 行为 | API 请求 |
+|---|---|
+| 正常推理 | `thinking.type=enabled`、`reasoning_effort=high` |
+| 上下文压缩 | `thinking.type=disabled`、`stream=false`、`max_tokens=MAX_OUT//4` |
+| Shell 工具 | `tools=[RUN]`、`tool_choice=auto` |
+| 流式输出 | `stream=true`、`stream_options.include_usage=true` |
+| 鉴权 | `Authorization: Bearer <DEEPSEEK_API_KEY>` |
+
+API 使用 `/chat/completions`。流式响应通过 SSE 读取 `content`、`reasoning_content`、`tool_calls` 与末尾 `usage`。非流式压缩请求解析标准 JSON 响应。
+
+DeepSeek 文档规定 `tool_choice=required` 与指定工具名不支持思考模式；本项目使用 `auto`，不使用 required/named tool choice。`deepseek-flash` 支持图像输入；`deepseek-v4-pro` 当前仅支持文本输入。以官方模型列表为准。
+
+### Key 读取优先级
+
+1. `DEEPSEEK_API_KEY` 环境变量。
+2. 旧版兼容文件 `~/.config/term_agent/key.bin`。
+3. 两者都缺失时进入隐藏输入向导。
+
+`key.bin` 沿用旧版本机器种子 XOR 编码格式，权限设为 `0600`。它属于混淆，不是现代强加密；高安全场景优先使用环境变量。修改 Key 不需要修改源码。
 
 ## 核心循环（main）
-```
-mem_hist = []            # 消息列表 [user/assistant/tool]
+
+```text
+mem_hist = []            # [user/assistant/tool] 消息列表
 summaries = []           # append-only 快照链
 loop:
-  q = input()            # Ctrl+Space(0x00) 清空缓冲；Ctrl+X(0x18) 置压缩标志
+  q = input()
   mem_hist.append(user q)
   inner loop:
     if need_compress:
@@ -36,95 +63,89 @@ loop:
       summaries.append(ns)
       mem_hist = mem_hist[last_u:]
       need_compress = False
-    resp = llm(build_context(mem_hist, summaries))   # 流式；select 0s 轮询 stdin
-    if resp None/API_ERROR: retry>10 → need_compress=True
-    if resp.usage > MAX_TOK: need_compress=True
-    否则处理 content / tool_calls（循环执行 RUN 并回填）
+    resp = llm(build_context(mem_hist, summaries))
+    if resp None/API_ERROR: retry / compression recovery
+    if resp.usage.total_tokens > MAX_TOK: need_compress=True
+    否则处理 content / tool_calls（执行 RUN 并回填）
 ```
-中断语义：流式收包与命令执行期间都 `select` 轮询 stdin ——`0x00` 抛 `_StopLoop` 立刻回主循环，`0x18` 置 `_compress_requested` 供下一轮压缩。
+
+中断语义：流式收包与命令执行期间轮询 stdin。`0x00` 抛 `_StopLoop` 回主循环；`0x18` 设置 `_compress_requested`，在安全边界请求压缩。
 
 ## 上下文 = 快照链 + 历史
-```
+
+```text
 build_context: [system SYSTEM] + [user s for s in summaries] + mem_hist
 compress:      [system SYSTEM] + [user s for s in summaries] + hist + [user "[总结所有]"]
                → llm(stream=False, think=False, max_tokens=MAX_OUT//4)
-               → 返回 "历史背景：" + 新快照文本
+               → "历史背景：" + 新快照
 ```
-- 快照链 append-only：旧快照永不变更/不移除（prefix immutable）
-- 压缩请求复用完整前缀 → 最大化 KV 命中
-- 连续多条 user 消息（快照链）是设计，不是 bug
 
-## 安全模式（模型标志分流）
+- 快照链 append-only，旧快照不修改。
+- 压缩请求复用完整前缀。
+- 连续 user 快照消息是设计，不是 bug。
+- `MAX_TOK` 是响应 usage 触发阈值，不是 API 的硬上下文上限。
 
-判定权在模型。宿主不扫描命令内容，只读 `RUN` 入参的 `dangerous` 布尔值决定走哪条路。
+## 安全模式
 
-| dangerous | 路径 | 代码 |
-|---|---|---|
-| `false` | 直接 `subprocess` 执行 | `RUN` 内跳过闸门 |
-| `true` | 弹确认块，用户 `Y` 才执行 | `confirm_block(cmd)` |
+宿主不扫描命令内容，只读取 `RUN` 工具参数中的 `dangerous` 布尔值。
 
-| 事实 | 后果 |
+| dangerous | 行为 |
 |---|---|
-| 代码侧已无 `match_danger` / `DANGER_BL` / `PIPE_PATTERNS` / `_first_hit` / `_split_segs` | 无黑名单、无正则、无剥壳、无命令替换解析 |
-| 模型误标 `false` | 命令直接执行，宿主无兜底（有意设计） |
-| 判定口径只在 `SYSTEM` 的 `[SAFETY]` 段 + `TOOLS` 的 `dangerous` 描述 | 改口径只动这两处，不动代码 |
+| `false` | 直接执行 Shell 命令 |
+| `true` | 显示命令确认块，用户输入 `Y` 后执行 |
 
-### 授权闸门（confirm_block）
+模型误标 `false` 时，宿主无二次拦截。该行为是当前安全模型的明确边界。
+
+### 授权闸门
 
 | 项 | 行为 |
 |---|---|
-| 预输入 | 进闸门前 `tcflush(TCIFLUSH)`，封死"没看提示就被放行" |
-| 归一化 | `NFKC` + strip + lower，全角 `ｙ/Ｙ/ｎ/Ｎ` 等效半角 |
-| 接受 | `y` / `yes` + **回车**；单键不算（防误触） |
-| 超时 | `AUTH_TIMEOUT` 秒无输入 → 自动拒绝 |
-| 非法输入 | 重问；`Ctrl+C` / `Ctrl+D` → 拒绝 |
-| 拒绝回执 | `[已拒绝] 危险命令未执行（模型标记 dangerous=true）` |
+| 预输入 | `tcflush(TCIFLUSH)`，避免预输入误放行 |
+| 归一化 | NFKC + strip + lower |
+| 接受 | `y` / `yes` + 回车 |
+| 拒绝 | `n` / 超时 / `Ctrl+C` / `Ctrl+D` |
+| 超时 | `AUTH_TIMEOUT` 秒；<=0 使用阻塞输入 |
 
-## 进程回收
-- `RUN` 用 `start_new_session=True` 建独立进程组
-- `_kp(p)` **无条件** `killpg(SIGKILL)`：主进程已退出时，组内孙进程可能仍持有 tty 并读走键盘输入
-  （曾表现为"授权按了 y 却毫无反应"）；旧版 `if p.poll() is None` 守卫会让这步被整体跳过
-- `RUN` 的 `finally` 统一 `_kp(_proc)`，避免残留
+## 进程回收与异常处理
 
-## 崩溃兜底
-`q=_img(q)` 包 `try/except`：未闭合引号（`shlex.split` 抛 `ValueError`）等异常按纯文本处理，不再退出主循环。
+- `RUN` 使用 `start_new_session=True` 创建独立进程组。
+- `_kp(p)` 回收整组进程，避免子进程继续占用 TTY。
+- `RUN` 的 `finally` 统一回收进程组。
+- 图片解析异常按纯文本处理，不退出主循环。
+- HTTP 401/403、429、网络异常输出可诊断错误；调用层保留 `API_ERROR`/重试约定。
 
 ## 函数地图
+
 | 函数 | 职责 |
 |---|---|
-| main | 交互循环 + 压缩调度 + 工具循环 |
-| llm | OpenAI 兼容请求，流式解析 content/reasoning/tool_calls/usage；stdin 轮询支持中断 |
-| build_context | SYSTEM + 快照链 + 历史 |
-| compress | 压缩历史 → 新快照（append） |
-| sanitize_hist | 丢弃 tool_calls 与 tool 回填不配对的消息段 |
-| confirm_block | 授权闸门（tcflush + NFKC + 回车确认），由 `dangerous` 标志触发 |
-| RUN | 执行命令，select 边读边响应中断，超时 3600s |
-| _kp | 无条件 killpg 回收整组 |
-| _img / _shrink / _shrink_raw / _dec / _enc | 图片转 base64（自研解码，无外部依赖） |
-| load/save_api_key | key.bin 读写（machine-id XOR + base64，0600） |
+| `main` | 交互循环、压缩调度、工具循环 |
+| `llm` | DeepSeek 官方 API 请求、SSE 解析、中断轮询 |
+| `build_context` | SYSTEM + 快照链 + 历史 |
+| `compress` | 压缩历史并追加快照 |
+| `sanitize_hist` | 丢弃 tool_calls 与 tool 回填不配对的消息段 |
+| `confirm_block` | 危险命令授权闸门 |
+| `RUN` | Shell 执行、stdin 中断轮询、进程回收 |
+| `load_api_key` | 环境变量优先，其次读取旧 key.bin |
+| `save_api_key` | 写入兼容格式 key.bin，权限 0600 |
 
-## 密钥
-`API_KEY = load_api_key()` 只从 `~/.config/term_agent/key.bin` 读，源码内不含明文 Key；
-缺失时 `main` 调 `welcome()` 向导写入（保存即 `chmod 600`）。换 Key 只需重写 key.bin，不必改源码。
+## Termux 安装行为
 
-## 改哪 / 怎么验
-- 改提示词 → `SYSTEM`（**同步到别的机器时严禁整文件覆盖**：本仓库这份是 Bazzite，Termux 侧有其自己的环境口径）
-- 改闸门 → `confirm_block`（`tcflush` 与 `NFKC` 两处都不要回退）
-- 改判定权 → 只动 `SYSTEM` 的 `[SAFETY]` 段与 `TOOLS` 的 `dangerous` 描述，代码侧不参与判定
-- 改压缩 → `compress` / `build_context` / `main` 压缩段（三处联动）
-- 语法：`python3 -m py_compile term_agent.py`
-- 危险判定回归（不启动宿主，直接加载模块）：
-```python
-import importlib.util
-spec = importlib.util.spec_from_file_location("ta", "term_agent.py")
-m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
-assert not hasattr(m, "match_danger")
-assert m.RUN({"command": "echo hi", "explain": "t", "dangerous": False}).startswith("退出码 0")
+`install.sh` 使用 GitHub codeload 源码包安装，不依赖桌面环境：
+
+- 主程序：`$PREFIX/share/term_agent/term_agent.py`
+- 命令：`$PREFIX/bin/agent`
+- 更新：`$PREFIX/bin/agent-update`
+- 用户数据：`~/.config/term_agent/`
+- 原厂 Skills：复制到 `~/.config/term_agent/skill/`
+- 更新时只清理上次安装器记录的原厂 Skills，不删除用户自建文件、Key、memory、taskbook。
+
+系统包：`python curl tar tmux ffmpeg android-tools`；`yt-dlp` 安装失败不影响主程序。
+
+## 验证
+
+```bash
+python3 -m py_compile term_agent.py skills/*.py
+bash -n install.sh launch.sh
 ```
 
-## 约束
-- 新终端 = 新对话（`mem_hist` 纯内存，无持久化）
-- 压缩请求非流式、关闭思考（`think=False`）
-- 依赖 `readline`（交互输入）
-- 单命令执行上限 3600s，超时整组 kill
-- 零注释风格：解释写进本文件，源码不写行内注释
+无 Key 时可做模块导入与语法检查；真实 API 联通测试需要用户自己的 DeepSeek API Key。不要把真实 Key 写入测试文件或提交仓库。

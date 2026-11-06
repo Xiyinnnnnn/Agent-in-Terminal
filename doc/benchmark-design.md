@@ -1,5 +1,7 @@
 # 测试题设计简略说明
 
+> 历史实验记录（2026-09）：本节的 cc-proxy 与模型路由是当时冻结的 benchmark 环境，不是当前项目运行配置。当前主程序已改为直连 DeepSeek 官方 API，见 README 与本文件外的 `doc/dev.md`。
+
 > 项目：**Long-Horizon Coding-Agent Recovery Benchmark**
 > 目的：在统一宿主环境（term_agent.py CLI Agent）下，考核 3 个长文本 Coding Agent 在多阶段长任务 + 人为中断恢复场景中的真实工程能力。
 > 执行日期：2026-09-08 ~ 09-09 ｜ 冻结版本：1.0-freeze（`config/frozen.json`，全程未改）
