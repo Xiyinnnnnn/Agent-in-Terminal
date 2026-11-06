@@ -29,34 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/Xiyinnnnnn/Agent-in-Terminal/main/i
 
 首次运行时按提示配置 DeepSeek API Key。
 
-安装完成后，直接运行：
-
-```bash
-agent
-```
-
 首次启动时按提示配置 DeepSeek API Key。
-
-## USAGE
-
-```bash
-agent
-```
-
-启动新对话。
-
-```bash
-agent-update
-```
-
-更新 Agent。
-
-也可以通过环境变量配置 API Key：
-
-```bash
-export DEEPSEEK_API_KEY="sk-..."
-agent
-```
 
 ## KEY BINDINGS
 
@@ -81,8 +54,6 @@ Agent-in-Terminal/
 - Python 3.10+
 - Pillow（PIL）
 - DeepSeek Official API
-
-主程序使用 Python 标准库处理核心逻辑，Pillow 用于图像处理。
 
 ## SECURITY
 
