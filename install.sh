@@ -1,22 +1,3 @@
-#!/usr/bin/env bash
-# ============================================================
-#  term_agent 一键安装脚本（双源自动回退版）
-#
-#   一条命令安装：
-#     CDN (国内直连):  curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/install.sh | bash
-#     GitHub 直连:     curl -fsSL https://raw.githubusercontent.com/Xiyinnnnnn/Agent-in-Terminal/main/install.sh | bash
-#
-#  下载策略：jsDelivr CDN 优先（国内友好），失败自动回退 GitHub raw
-#  安装内容：
-#    term_agent.py      -> ~/.local/bin/term_agent/       (主程序，零依赖)
-#    term-agent.desktop -> ~/.local/share/applications/   (应用菜单双击入口)
-#    key.bin            -> ~/.config/term_agent/          (API Key 加密保存，首次运行生成)
-#    skills/*           -> ~/.config/term_agent/skill/    (原厂技能：整目录原样复刻)
-#
-#  技能目录：整目录跟随仓库 —— 新增技能无需改脚本；
-#            仓库里删掉的技能，重装时只清理「本脚本上次装过的同名文件」，不碰你自建的技能
-
-# ============================================================
 set -e
 
 REPO="Xiyinnnnnn/Agent-in-Terminal"
@@ -30,9 +11,7 @@ APPS="$HOME/.local/share/applications"
 CONFIG_DIR="$HOME/.config/term_agent"
 MEMORY_DIR="$CONFIG_DIR/memory"
 SKILL_DIR="$CONFIG_DIR/skill"
-INSTALLED_REC="$SKILL_DIR/.repo-skills"   # 上次由本脚本安装的技能清单（用于同步删除）
-
-# ── 依赖：仅补齐 Python / Pillow，不改变原安装与更新流程 ──
+INSTALLED_REC="$SKILL_DIR/.repo-skills"   
 if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
     command -v pkg >/dev/null 2>&1 || { echo "[FAIL] 未找到 Termux pkg" >&2; exit 1; }
     if ! python3 -c 'import PIL' >/dev/null 2>&1; then
@@ -72,7 +51,6 @@ python3 -c 'import sys; from PIL import Image; sys.exit(0 if sys.version_info >=
 echo "Downloading (CDN first, GitHub fallback)..."
 mkdir -p "$DEST" "$APPS" "$CONFIG_DIR" "$MEMORY_DIR" "$SKILL_DIR"
 
-# 双源下载：CDN 优先，失败自动切 GitHub raw
 dl() {
     local file="$1" out="$2"
     if curl -fsSL "$CDN_BASE/$file" -o "$out" 2>/dev/null; then
@@ -89,11 +67,6 @@ dl term_agent.py "$DEST/term_agent.py"
 dl term-agent.desktop "$APPS/term-agent.desktop"
 chmod +x "$DEST/term_agent.py" "$APPS/term-agent.desktop"
 
-# ── skills/ 整目录原样复刻 ───────────────────────────────────
-#  清单来源①GitHub Contents API（中文名原样返回，永远最新）
-#        ②API 不可达时读仓库内 skills/.manifest（静态兜底，CDN 可取）
-#  文件获取仍走 dl()，即每个技能都享受「CDN 优先」；同名文件直接覆盖=与仓库一致
-#  注意：只复刻 skills/ 第一层文件（不含子目录、不含 dot 文件）
 list_skills_api() {
     curl -fsSL "$API_BASE/skills?ref=$BRANCH" 2>/dev/null | python3 -c '
 import json, sys
@@ -130,7 +103,7 @@ if [ -n "$SKILL_LIST" ]; then
     done <<SKILLS_EOF
 $SKILL_LIST
 SKILLS_EOF
-    # 同步清理：上次装过、本次仓库已删除的原厂技能（仅限记录名单内、且是纯文件名，不碰自建技能）
+
     if [ -f "$INSTALLED_REC" ]; then
         while IFS= read -r old; do
             case "$old" in ""|*/*|*..*) continue ;; esac
@@ -145,6 +118,16 @@ else
     echo "  [WARN] 取不到 skills/ 清单（API 与 .manifest 均不可达），本次跳过技能复刻" >&2
 fi
 
+
+if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
+    mkdir -p "$PREFIX/bin"
+    cat > "$PREFIX/bin/agent" <<EOF
+#!/data/data/com.termux/files/usr/bin/bash
+exec python3 "$DEST/term_agent.py" "\$@"
+EOF
+    chmod +x "$PREFIX/bin/agent"
+fi
+
 if [ ! -f "$CONFIG_DIR/key.bin" ]; then
     echo "First run will guide you to enter API Key (getpass, machine-bound encrypted)"
     echo "Or run ahead: python3 $DEST/term_agent.py and follow the prompts"
@@ -152,6 +135,10 @@ fi
 
 echo ""
 echo "Installation complete!"
-echo "   Run in terminal: python3 $DEST/term_agent.py"
+if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
+    echo "   Run in terminal: agent"
+else
+    echo "   Run in terminal: python3 $DEST/term_agent.py"
+fi
 echo ""
 echo "   Tip: new terminal = new conversation; ask the agent to modify its own parameters if needed"
