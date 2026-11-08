@@ -46,7 +46,7 @@ def scan(d):
             out.append({"kind": "index_missing", "file": str(p), "detail": f"未进 {idx.name}"})
         elif len(hit) > 1:
             out.append({"kind": "index_dup", "file": str(p), "detail": "索引出现 %d 次" % len(hit)})
-    # 2 空件 / 超限 / 缺 H2
+    # 2 结构（H1/H2）/ 空件 / 超限
     for p in top:
         n = p.stat().st_size
         if n < 100:
@@ -57,7 +57,24 @@ def scan(d):
         elif n > soft:
             out.append({"kind": "near_limit", "file": str(p), "detail": "%d B > %d" % (n, soft)})
         t = p.read_text()
-        if "\n## " not in t:
+        # 结构按 00-文档规范：首个非空行 = `# 标题`(H1)，其后定名章节 = `## 章`(H2)；围栏内 # 不算
+        h1 = h2 = False
+        fenced = first = False
+        for l in t.splitlines():
+            if l.startswith("```"):
+                fenced = not fenced; continue
+            if fenced or not l.strip():
+                continue
+            if not first:
+                first = True
+                h1 = re.match(r"^#\s", l) is not None
+                h2 = re.match(r"^##\s", l) is not None
+                continue
+            if re.match(r"^##\s", l):
+                h2 = True; break
+        if not h1:
+            out.append({"kind": "no_h1", "file": str(p), "detail": "首个非空行不是一级标题"})
+        if not h2:
             out.append({"kind": "no_h2", "file": str(p), "detail": "无二级标题"})
         # 3 长散文行（跳过代码块）
         fenced = False
