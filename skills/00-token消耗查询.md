@@ -7,6 +7,7 @@ REF memory/反代-用量与额度查询现状.md
 
 ## 命令
 ```bash
+ln -sfn ~/.config/term_agent/skill/token.mjs ~/.local/bin/token   # 首次
 token ds                      # DeepSeek 官方（全名 deepseek）
 token or                      # OpenRouter（全名 openrouter）
 token oc                      # OpenCode（全名 opencode / zen）
@@ -47,4 +48,3 @@ dsbalance / wallet / ccusage  # 旧软链，按 argv[1] 名推断 provider
 |---|---|
 | `limit` ≠ 余额 | openrouter 的 `limit` 是花费上限，余额看 `total_credits - total_usage` |
 | 快照文件 | `~/.local/share/dsbalance/history.jsonl` 保留 2000 行，删掉即失去推算 |
-| 金额 | 原始值是字符串，统一 `Number()` 后 `toFixed(2)` |
