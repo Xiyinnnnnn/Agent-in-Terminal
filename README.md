@@ -30,11 +30,9 @@ API 端点与模型写在 `term_agent.py` 顶部常量中（`API_URL` / `MODEL` 
 
 | 按键 | 行为 |
 |---|---|
-| `Ctrl+Space` | 立即暂停当前执行（不退出，回到提示符） |
-| `Ctrl+X` | 请求压缩当前上下文（不打断执行；当前步骤自然结束后进入压缩流程） |
-
-> 启动横幅：`新终端=新对话 | Ctrl+Space=暂停 | Ctrl+X=压缩`
-> `Ctrl+X` 只设置请求标记，多次按下合并为一次压缩，不立即执行、不中断 LLM / Shell。
+| `Ctrl+Space` | 立即暂停当前执行 |
+| `Ctrl+X` | 请求压缩当前上下文 |
+| `Alt+Enter` | 换行 |
 
 ## ARCHITECTURE
 
