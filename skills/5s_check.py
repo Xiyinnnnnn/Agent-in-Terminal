@@ -11,7 +11,7 @@ def _hit(line, path):
         first = re.sub(r"^[\u2605\u26a0\s]+", "", cells[0]).strip("`*").strip()
         return first in (path.name, path.stem)
     if line.lstrip()[:2] in ("- ", "* "):
-        pat = r"(?<![\w-])" + re.escape(path.name) + r"(?![\w-])"
+        pat = r"(?<![\w.-])" + re.escape(path.name) + r"(?![\w.-])"
         return re.search(pat, line) is not None
     return False
 from pathlib import Path
@@ -43,7 +43,7 @@ def scan(d):
     for p in top:
         hit = [l for l in lines if _hit(l, p)]
         if not hit:
-            out.append({"kind": "index_missing", "file": str(p), "detail": "未进 00-索引.md"})
+            out.append({"kind": "index_missing", "file": str(p), "detail": f"未进 {idx.name}"})
         elif len(hit) > 1:
             out.append({"kind": "index_dup", "file": str(p), "detail": "索引出现 %d 次" % len(hit)})
     # 2 空件 / 超限 / 缺 H2
