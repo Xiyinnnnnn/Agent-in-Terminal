@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
 import json, re, sys
+
+
+def _hit(line, path):
+    """索引命中：表格第 1 列（允许 `反引号`/加粗/带 .md 后缀），或列表式行内含完整文件名"""
+    if line.startswith("| "):
+        cells = [c.strip() for c in line.split("|")[1:-1]]
+        if not cells:
+            return False
+        first = re.sub(r"^[\u2605\u26a0\s]+", "", cells[0]).strip("`*").strip()
+        return first in (path.name, path.stem)
+    if line.lstrip()[:2] in ("- ", "* "):
+        pat = r"(?<![\w-])" + re.escape(path.name) + r"(?![\w-])"
+        return re.search(pat, line) is not None
+    return False
 from pathlib import Path
 
 ROOT = Path.home() / ".config" / "term_agent"
@@ -19,13 +33,15 @@ def emit(d): print(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
 
 def scan(d):
     out = []
-    idx = d / "00-索引.md"
-    top = sorted(p for p in d.glob("*.md") if p.name != "00-索引.md")
+    # 本机索引命名为 _00-索引.md（上游为 00-索引.md）→ 两种都识别，索引自身不计入待收清单
+    idx = next((d / n for n in ("00-索引.md", "_00-索引.md") if (d / n).exists()), d / "00-索引.md")
+    IDX_NAMES = ("00-索引.md", "_00-索引.md")
+    top = sorted(p for p in d.glob("*.md") if p.name not in IDX_NAMES)
     lines = idx.read_text().splitlines() if idx.exists() else []
 
     # 1 索引漏收 / 重复行
     for p in top:
-        hit = [l for l in lines if l.startswith("| ") and p.stem in l.split("|")[1]]
+        hit = [l for l in lines if _hit(l, p)]
         if not hit:
             out.append({"kind": "index_missing", "file": str(p), "detail": "未进 00-索引.md"})
         elif len(hit) > 1:
