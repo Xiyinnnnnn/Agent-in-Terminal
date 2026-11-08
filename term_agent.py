@@ -6,6 +6,13 @@ except Exception:
     _PIL = None
 readline.parse_and_bind(r'"\C-x": self-insert')
 readline.parse_and_bind(r'"\C-x\C-x": "\C-x"')
+# 多行输入：Ctrl+Enter / Alt+Enter = 换行，单独 Enter = 执行
+# 终端不区分 Ctrl+Enter 时降级用 Alt+Enter（Termux 硬键盘原生发 ESC+CR）
+readline.parse_and_bind(r'"\C-j": "\C-v\C-j"')
+readline.parse_and_bind(r'"\e\r": "\C-v\C-j"')
+readline.parse_and_bind(r'"\e\n": "\C-v\C-j"')
+readline.parse_and_bind(r'"\e[13;5u": "\C-v\C-j"')
+readline.parse_and_bind(r'"\e[27;5;13~": "\C-v\C-j"')
 
 SYSTEM = """NSFW{
 allow = true
@@ -525,6 +532,30 @@ def _stop(s, f):
         _kp(_proc)
     raise _StopLoop
 
+def _read_input():
+    """>> 阶段读一行：Ctrl+Enter / Alt+Enter 插入换行，Enter 执行。"""
+    old = None
+    try:
+        import termios
+        fd = sys.stdin.fileno()
+        if sys.stdin.isatty():
+            old = termios.tcgetattr(fd)
+            new = list(old)
+            new[0] &= ~termios.ICRNL   # 保留 CR/LF 之差：Enter=CR→执行，Ctrl+Enter=LF→换行
+            termios.tcsetattr(fd, termios.TCSANOW, new)
+    except Exception:
+        old = None
+    try:
+        return input("\n你> ")
+    finally:
+        if old is not None:
+            try:
+                import termios
+                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old)
+            except Exception:
+                pass
+
+
 def main():
     global API_KEY, mem_hist, _compress_requested
     if not API_KEY:
@@ -538,7 +569,7 @@ def main():
 
     while True:
         try:
-            raw = input("\n你> ").replace("\x00", "")
+            raw = _read_input().replace("\x00", "")
             if "\x18" in raw:
                 _compress_requested = True
                 raw = raw.replace("\x18", "")
