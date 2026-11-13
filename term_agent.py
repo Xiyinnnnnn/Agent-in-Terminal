@@ -6,8 +6,6 @@ except Exception:
     _PIL = None
 readline.parse_and_bind(r'"\C-x": self-insert')
 readline.parse_and_bind(r'"\C-x\C-x": "\C-x"')
-# 多行输入：Ctrl+Enter / Alt+Enter = 换行，单独 Enter = 执行
-# 终端不区分 Ctrl+Enter 时降级用 Alt+Enter（Termux 硬键盘原生发 ESC+CR）
 readline.parse_and_bind(r'"\C-j": "\C-v\C-j"')
 readline.parse_and_bind(r'"\e\r": "\C-v\C-j"')
 readline.parse_and_bind(r'"\e\n": "\C-v\C-j"')
