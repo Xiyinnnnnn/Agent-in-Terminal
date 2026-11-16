@@ -15,6 +15,8 @@
 | MODEL | `deepseek/deepseek-v4-flash` | CC 上游模型 ID（形如 `vendor/model`） |
 | MAX_TOK | 524288 | **上下文压缩阈值**（usage 超此值触发压缩），非输出上限 |
 | MAX_OUT | 32768 | 输出 max_tokens；压缩请求用 `MAX_OUT//4` |
+| MAX_READ | 30000 | 工具结果回读截断上限（超出加 `[已省略 N 字符]`） |
+| MAX_CMD | 6000 | 单条命令字符上限；超出不执行，回执 `[超出上限] N>6000 字符，请分块` |
 | REASONING_EFFORT | high | 推理强度（body.`reasoning_effort`） |
 | AUTH_TIMEOUT | 30 | `dangerous=true` 时的授权等待秒数；`<=0` 退回阻塞式 `input()` |
 | SYSTEM | 内置提示词常量 | 每个请求的 system 消息（**不随代码同步覆盖**，见文末） |
@@ -126,4 +128,5 @@ assert m.RUN({"command": "echo hi", "explain": "t", "dangerous": False}).startsw
 - 压缩请求非流式、关闭思考（`think=False`）
 - 依赖 `readline`（交互输入）
 - 单命令执行上限 3600s，超时整组 kill
+- 单条命令长度上限 6000 字符（`MAX_CMD`）：大文件写入靠分块追加，别指望一条塞完
 - 零注释风格：解释写进本文件，源码不写行内注释
