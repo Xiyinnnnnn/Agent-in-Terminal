@@ -17,4 +17,4 @@ token.mjs
 00-token消耗查询.md
 00-索引.md
 escalate.py
-00-疑难问题诊断-模型升级.md
+00-疑难升级-大模型一次性诊断.md
