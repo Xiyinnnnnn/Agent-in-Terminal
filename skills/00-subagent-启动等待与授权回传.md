@@ -1,7 +1,6 @@
-# 00-subagent-启动等待与授权回传
+# subagent-启动等待与授权回传
 
-STATE ✓ 2026-10-29｜SCOPE 派活给持久子代理并在完成/授权时收回控制权｜SCRIPT `subagent.py`
-REF `memory/subagent-tmux管道与非tty授权通道.md`（机制与实测口径）
+STATE ✓ 2026-10-29｜SCOPE 派活给持久子代理并在完成/授权时收回控制权｜SCRIPT `subagent.py`｜REF `memory/archive/subagent-tmux管道与非tty授权通道.md`
 
 ## 何时用
 | 条件 | 动作 |
@@ -48,3 +47,4 @@ python3 $S kill  -n job1
 | 决策被吞成下一条提问 | RUN 执行中不读 stdin | 只在见到 `auth`/`done` 后 `send` `reply` |
 | 完成误报 | 回答正文含 `你> ` | 已限定尾部+静默 2s；存疑用 `tail` 复核 |
 | 日志乱码 | `pipe-pane` 记原始字节含 ANSI | 一律用 `tail` 子命令，别 `cat` |
+| 缺 tmux | 硬依赖 | Termux `pkg install tmux`；Debian `apt install tmux`；两端命令一致 |

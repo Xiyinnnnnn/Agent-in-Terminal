@@ -35,7 +35,7 @@ python3 $H js https://a.com s.js                # 脚本走第二位置参数
 ## 失败处置
 | 现象 | 处置 |
 |---|---|
-| 报找不到 chromium 可执行文件 | Termux `pkg install chromium`；Linux 用 `HL_CHROME` 指真实二进制 |
+| 报找不到 chromium 可执行文件 | Termux `pkg install chromium`；Debian 系 `apt install chromium`；其它发行版用 `HL_CHROME` 指真实二进制 |
 | `pkg install chromium` 失败 | `pkg update` 后重试；装好后跑 `check` |
 | 截图空白 / 全黑 | 加 `--wait` 再截、加 `--full`、放大 `--w/--h` |
 | 等待超时但肉眼有元素 | 元素在 iframe 内或需滚动触发 → 换选择器，或 js 里 `scrollTo` 后再取 |

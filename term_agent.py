@@ -97,6 +97,7 @@ MODEL   = "deepseek-flash"
 MAX_TOK = 524288
 MAX_OUT = 32768
 MAX_READ = 30000
+MAX_CMD = 6000
 REASONING_EFFORT = "high"
 BASE_DIR  = os.path.expanduser("~/.config/term_agent")
 KEY_FILE  = os.path.join(BASE_DIR, "key.bin")
@@ -441,6 +442,8 @@ def RUN(args):
     cmd = args.get("command", "").strip()
     if not cmd:
         return "错误：没有命令"
+    if len(cmd) > MAX_CMD:
+        return "[超出上限] %d>%d 字符，请分块" % (len(cmd), MAX_CMD)
     if args.get("dangerous") and not confirm_block(cmd):
         return "[已拒绝] 危险命令未执行"
     import select, termios, tty

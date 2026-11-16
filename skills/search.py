@@ -18,7 +18,7 @@ STATE_F = CFG_DIR / ".search_state.json"
 KEYS_F = CFG_DIR / ".search_keys"      # 可选：每行一个 key，600 权限
 KEY_HINT_F = CFG_DIR / ".search_keys.py"
 
-KEYS = os.environ.get("TAVILY_KEYS", "").split()   # 云端版不含任何 key
+KEYS = os.environ.get("TAVILY_KEYS", "").split()
 
 WINDOW = 60.0          # 限流窗口秒
 USAGE_TTL = 600.0      # 额度缓存；等于 /usage 限流周期，避免撞 10/10min

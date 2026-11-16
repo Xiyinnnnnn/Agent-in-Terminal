@@ -1,6 +1,5 @@
-# 00-token消耗查询 — 四供应商 token 消耗 / 额度
-STATE ✓ 2026-11-08｜SCOPE DeepSeek 官方、OpenRouter、OpenCode、CommandCode 四家余额与用量；`provider` 字段切换｜SCRIPT `token.mjs`
-REF memory/反代-用量与额度查询现状.md
+# token消耗查询 — 四供应商 token 消耗 / 额度
+STATE ✓ 2026-11-08｜SCOPE DeepSeek 官方、OpenRouter、OpenCode、CommandCode 四家余额与用量；`provider` 字段切换｜SCRIPT `token.mjs`｜REF `memory/反代-用量与额度查询现状.md`
 
 ## 何时用
 问「DeepSeek 还剩多少钱 / 消耗多快」「OpenRouter 余额与 key 限额」「OC key 还有效吗」「CommandCode 月额度 / 5 小时额度」时。
@@ -48,3 +47,4 @@ dsbalance / wallet / ccusage  # 旧软链，按 argv[1] 名推断 provider
 |---|---|
 | `limit` ≠ 余额 | openrouter 的 `limit` 是花费上限，余额看 `total_credits - total_usage` |
 | 快照文件 | `~/.local/share/dsbalance/history.jsonl` 保留 2000 行，删掉即失去推算 |
+| 缺 node | Termux `pkg install nodejs`；Debian `apt install nodejs` |
