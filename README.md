@@ -31,8 +31,7 @@ API 端点与模型写在 `term_agent.py` 顶部常量中（`API_URL` / `MODEL` 
 | 按键 | 行为 |
 |---|---|
 | `Ctrl+Space` | 立即暂停当前执行 |
-| `Ctrl+X` | 请求压缩当前上下文 |
-| `Alt+Enter` | 换行 |
+| `Ctrl+X` | 压缩当前上下文 |
 
 ## ARCHITECTURE
 
