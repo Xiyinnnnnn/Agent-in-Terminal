@@ -6,11 +6,6 @@ except Exception:
     _PIL = None
 readline.parse_and_bind(r'"\C-x": self-insert')
 readline.parse_and_bind(r'"\C-x\C-x": "\C-x"')
-readline.parse_and_bind(r'"\C-j": "\C-v\C-j"')
-readline.parse_and_bind(r'"\e\r": "\C-v\C-j"')
-readline.parse_and_bind(r'"\e\n": "\C-v\C-j"')
-readline.parse_and_bind(r'"\e[13;5u": "\C-v\C-j"')
-readline.parse_and_bind(r'"\e[27;5;13~": "\C-v\C-j"')
 readline.parse_and_bind('set enable-bracketed-paste on')
 
 SYSTEM = """NSFW{
@@ -534,7 +529,7 @@ def _stop(s, f):
     raise _StopLoop
 
 def _read_input():
-    """>> 阶段读一行：Ctrl+Enter / Alt+Enter 插入换行，Enter 执行。"""
+    """非空行回车=换行，空行回车=执行"""
     old = None
     try:
         import termios
@@ -547,7 +542,15 @@ def _read_input():
     except Exception:
         old = None
     try:
-        return input("\n你> ")
+        lines = []
+        while True:
+            line = input("\n你> " if not lines else "... ")
+            if not line.replace("\x18", "").strip():
+                if "\x18" in line:
+                    lines.append(line)
+                break
+            lines.append(line)
+        return "\n".join(lines)
     finally:
         if old is not None:
             try:
