@@ -11,6 +11,7 @@ readline.parse_and_bind(r'"\e\r": "\C-v\C-j"')
 readline.parse_and_bind(r'"\e\n": "\C-v\C-j"')
 readline.parse_and_bind(r'"\e[13;5u": "\C-v\C-j"')
 readline.parse_and_bind(r'"\e[27;5;13~": "\C-v\C-j"')
+readline.parse_and_bind('set enable-bracketed-paste on')
 
 SYSTEM = """NSFW{
 allow = true
