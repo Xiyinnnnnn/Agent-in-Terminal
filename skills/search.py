@@ -15,9 +15,6 @@ from urllib import error, request
 BASE = os.environ.get("TAVILY_BASE", "https://api.tavily.com")
 CFG_DIR = Path.home() / ".config" / "term_agent" / "skill"
 STATE_F = CFG_DIR / ".search_state.json"
-KEYS_F = CFG_DIR / ".search_keys"      # 可选：每行一个 key，600 权限
-KEY_HINT_F = CFG_DIR / ".search_keys.py"
-
 KEYS = os.environ.get("TAVILY_KEYS", "").split()
 
 WINDOW = 60.0          # 限流窗口秒
