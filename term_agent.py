@@ -532,7 +532,6 @@ def _stop(s, f):
     raise _StopLoop
 
 def _read_input():
-    """非空行回车=换行，空行回车=执行"""
     old = None
     try:
         import termios
@@ -540,7 +539,7 @@ def _read_input():
         if sys.stdin.isatty():
             old = termios.tcgetattr(fd)
             new = list(old)
-            new[0] &= ~termios.ICRNL   # 保留 CR/LF 之差：Enter=CR→执行，Ctrl+Enter=LF→换行
+            new[0] &= ~termios.ICRNL
             termios.tcsetattr(fd, termios.TCSANOW, new)
     except Exception:
         old = None
