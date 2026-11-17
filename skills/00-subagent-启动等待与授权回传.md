@@ -43,6 +43,7 @@ python3 $S kill  -n job1
 | 现象 | 原因 | 处置 |
 |---|---|---|
 | `auth` 挂很久不超时 | 子代理 stdin 为管道→`isatty()` 假→`input()` 无限等 | 正常；正是它保住 30s 授权窗口 |
+| `send`/`--task` 后停在续行无响应 | 宿主 `_read_input` 靠空行提交；只写一行等于换行不收工 | 脚本已自动补空行（写 `\n\n`）；别用 `tmux send-keys` 手工注入 |
 | 子代理 RUN 内 Ctrl+C / Ctrl+Space 失效 | 同因，`old=None` 不设 cbreak | 长命令靠 `--timeout`（宿主 RUN 上限 3600s） |
 | 决策被吞成下一条提问 | RUN 执行中不读 stdin | 只在见到 `auth`/`done` 后 `send` `reply` |
 | 完成误报 | 回答正文含 `你> ` | 已限定尾部+静默 2s；存疑用 `tail` 复核 |

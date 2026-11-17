@@ -126,7 +126,7 @@ def cmd_start(a):
         die("not_ready:%s" % log)
     if a.task:
         with open(cmd, "a", encoding="utf-8") as f:
-            f.write(a.task.strip() + "\n")
+            f.write(a.task.strip() + "\n\n")
     wait(n, off, a.timeout, a.interval)
 
 
@@ -142,7 +142,7 @@ def cmd_send(a):
         die("no_session:%s" % n)
     cmd, _ = paths(n)
     with open(cmd, "a", encoding="utf-8") as f:
-        f.write(a.msg.rstrip("\n") + "\n")
+        f.write((a.msg.rstrip("\n") + "\n\n") if a.msg.strip() else "\n")
     emit({"ev": "sent", "session": n, "chars": len(a.msg)})
 
 
