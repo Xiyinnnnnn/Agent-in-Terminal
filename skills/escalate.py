@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""疑难问题诊断-模型升级 one shot：八段交接走 stdin，诊断到 stdout，不落盘。
+"""疑难杂症-强模型诊断 one shot：八段交接走 stdin，诊断到 stdout，不落盘。
 
 key.bin = base64(明文 ^ sha256(machine-id))，只进 Authorization 头。
 授权由 agent 在本体对话中取得，脚本不含开关。"""
