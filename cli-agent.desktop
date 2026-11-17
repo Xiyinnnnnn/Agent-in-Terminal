@@ -1,11 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=终端智能体
-Name[zh_CN]=终端智能体
-Comment=给需求，终端自己搞定
-Comment[zh_CN]=给需求，终端自己搞定
+Name=CLI-Agent++
+Comment=超轻量 CLI Agent：单文件宿主 + 技能集 + Shell 工具执行
 Exec=bash -lc "python3 ~/.local/bin/cli-agent/cli-agent.py"
 Terminal=true
 Categories=Utility;System;
 Icon=utilities-terminal
-Keywords=AI;agent;terminal;智能体;终端;
+Keywords=CLI;Agent;Terminal;Shell;
