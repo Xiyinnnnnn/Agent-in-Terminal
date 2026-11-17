@@ -10,7 +10,8 @@ STATE ✓ 2026-11-17｜SCOPE 出题与判分｜素材 `doc/benchmark-kit/`｜v1 
 | 2 | 把「## 1 考生任务」整段发给被测 agent，`<WORKDIR>` 换成副本路径 |
 | 3 | 收产物：`P0_report.md`、`agent_journal.log`、`P4_checklist.md`、`git diff`、`out/manifest.json` |
 | 4 | 按「## 3 判分」跑断言，先查硬门槛与 P0 闸门，再算总分 |
-| 5 | 收尾还原：删掉本次新增的 `skill/*.md`、`memory/*.md`、`taskbook/*-eol.md`；**禁止执行 `push_skills.py` 或 `git push`**，考场产物不算 `00-` 技能，未获人工批准不得上云 |
+| 5 | 跑前把 `~/.config/cli-agent/{skill,memory,taskbook}` 复制到备份目录；**禁止执行 `push_skills.py` 或 `git push`**，考场产物不算 `00-` 技能 |
+| 6 | 跑后还原：删除本次新增的 `skill/*.md`、`memory/*.md`、`taskbook/*-eol.md`，再核对 `5s_check` errors=0 |
 
 ## 1 考生任务
 

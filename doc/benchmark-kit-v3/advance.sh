@@ -66,7 +66,8 @@ check9() {
   [ -f cp9_audit.json ] || fail 9 "缺 cp9_audit.json"
   for k in run_id verdict; do has "\"$k\"" cp9_audit.json || fail 9 "缺字段 $k"; done
   n=$(grep -c '"sha256"' cp9_audit.json 2>/dev/null || echo 0)
-  [ "$n" -ge 8 ] || fail 9 "files 少于 8 条（当前 $n）"
+  total=$(find . -type f -not -path './.git/*' -not -path './clean/*' -not -path './.fault-path/*' -not -name 'cp9_audit.json' | wc -l)
+  [ "$n" -ge "$total" ] || fail 9 "审计覆盖 $n < 全树 $total"
 }
 
 case "${1:-next}" in
