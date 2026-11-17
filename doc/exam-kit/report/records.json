@@ -1,0 +1,5 @@
+[
+  { "ts": 1767323045000, "level": "INFO", "msg": "boot" },
+  { "ts": 1767323046000, "level": "WARN", "msg": "clock skew 0ms" },
+  { "ts": 1782864000000, "level": "ERROR", "msg": "upstream 502" }
+]
