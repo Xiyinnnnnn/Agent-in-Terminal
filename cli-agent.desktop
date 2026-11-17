@@ -4,6 +4,6 @@ Name=CLI-Agent++
 Comment=超轻量 CLI Agent：单文件宿主 + 技能集 + Shell 工具执行
 Exec=bash -lc "python3 ~/.local/bin/cli-agent/cli-agent.py"
 Terminal=true
-Categories=Utility;System;
+Categories=Utility;
 Icon=utilities-terminal
 Keywords=CLI;Agent;Terminal;Shell;
