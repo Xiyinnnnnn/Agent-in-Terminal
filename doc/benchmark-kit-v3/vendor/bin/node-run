@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -uo pipefail
+for p in "${PREFIX:-/nonexistent}/bin/node" /usr/bin/node /usr/local/bin/node "$HOME/.local/bin/node" /data/data/com.termux/files/usr/bin/node; do
+  [ -x "$p" ] && exec "$p" "$@"
+done
+echo "node-run: no node found" >&2
+exit 127
