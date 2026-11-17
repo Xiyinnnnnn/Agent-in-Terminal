@@ -50,7 +50,7 @@ for (const raw of fs.readFileSync(src, "utf8").replace(/\r\n?/g, "\n").split("\n
 
 const pres = new PptxGenJS();
 pres.layout = "LAYOUT_WIDE";
-pres.author = "term_agent";
+pres.author = "cli-agent";
 const cover = slides.length && slides[0].title && slides[0].level === 1 ? slides.shift() : null;
 
 if (cover) {

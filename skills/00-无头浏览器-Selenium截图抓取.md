@@ -8,7 +8,7 @@ STATE ✓ 2026-11-08｜SCOPE Termux(aarch64/bionic) 与 Linux 的 headless chrom
 
 ## 命令
 ```bash
-H=~/.config/term_agent/skill/hl.py
+H=~/.config/cli-agent/skill/hl.py
 python3 $H check                                # 自检+冒烟；首次运行自动装 selenium
 python3 $H title https://a.com                  # 标题 + 最终 URL
 python3 $H text  https://a.com                  # body 可见文本

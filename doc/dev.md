@@ -1,12 +1,12 @@
-# Agent-in-Terminal（宿主）
+# CLI-Agent（宿主）
 
 ## 是什么
 零依赖 Python 单文件终端 Agent（零注释风格）。OpenAI 兼容 API，bash 工具执行
 
 ## 运行与数据
-- 入口：本目录 `term_agent.py`（python3.14）
-- 桌面：`~/Desktop/term-agent.desktop` → `python3 ~/.local/bin/term_agent/term_agent.py`
-- 数据：`~/.config/term_agent/` = `key.bin`（加密 API Key）+ `memory/` `skill/` `taskbook/`（agent 自产 md）
+- 入口：本目录 `cli-agent.py`（python3.14）
+- 桌面：`~/Desktop/cli-agent.desktop` → `python3 ~/.local/bin/cli-agent/cli-agent.py`
+- 数据：`~/.config/cli-agent/` = `key.bin`（加密 API Key）+ `memory/` `skill/` `taskbook/`（agent 自产 md）
 
 ## 全局常量
 | 常量 | 值 | 用途 |
@@ -105,7 +105,7 @@ compress:      [system SYSTEM] + [user s for s in summaries] + hist + [user "[�
 | load/save_api_key | key.bin 读写（machine-id XOR + base64，0600） |
 
 ## 密钥
-`API_KEY = load_api_key()` 只从 `~/.config/term_agent/key.bin` 读，源码内不含明文 Key；
+`API_KEY = load_api_key()` 只从 `~/.config/cli-agent/key.bin` 读，源码内不含明文 Key；
 缺失时 `main` 调 `welcome()` 向导写入（保存即 `chmod 600`）。换 Key 只需重写 key.bin，不必改源码。
 
 ## 改哪 / 怎么验
@@ -113,11 +113,11 @@ compress:      [system SYSTEM] + [user s for s in summaries] + hist + [user "[�
 - 改闸门 → `confirm_block`（`tcflush` 与 `NFKC` 两处都不要回退）
 - 改判定权 → 只动 `SYSTEM` 的 `[SAFETY]` 段与 `TOOLS` 的 `dangerous` 描述，代码侧不参与判定
 - 改压缩 → `compress` / `build_context` / `main` 压缩段（三处联动）
-- 语法：`python3 -m py_compile term_agent.py`
+- 语法：`python3 -m py_compile cli-agent.py`
 - 危险判定回归（不启动宿主，直接加载模块）：
 ```python
 import importlib.util
-spec = importlib.util.spec_from_file_location("ta", "term_agent.py")
+spec = importlib.util.spec_from_file_location("ta", "cli-agent.py")
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 assert not hasattr(m, "match_danger")
 assert m.RUN({"command": "echo hi", "explain": "t", "dangerous": False}).startswith("退出码 0")

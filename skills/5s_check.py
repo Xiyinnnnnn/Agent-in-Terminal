@@ -16,7 +16,7 @@ def _hit(line, path):
     return False
 from pathlib import Path
 
-ROOT = Path.home() / ".config" / "term_agent"
+ROOT = Path.home() / ".config" / "cli-agent"
 DIRS = ["memory", "skill", "taskbook"]
 # 上限按"读一次成本"定：skill 常与命令同批载入故严格；memory 按主题隔离单篇深读
 LIM = {"skill": (10 * 1024, 7 * 1024), "memory": (24 * 1024, 14 * 1024), "taskbook": (24 * 1024, 12 * 1024)}

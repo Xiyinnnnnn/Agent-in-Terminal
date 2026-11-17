@@ -13,7 +13,7 @@ from pathlib import Path
 from urllib import error, request
 
 BASE = os.environ.get("TAVILY_BASE", "https://api.tavily.com")
-CFG_DIR = Path.home() / ".config" / "term_agent" / "skill"
+CFG_DIR = Path.home() / ".config" / "cli-agent" / "skill"
 STATE_F = CFG_DIR / ".search_state.json"
 KEYS = os.environ.get("TAVILY_KEYS", "").split()
 

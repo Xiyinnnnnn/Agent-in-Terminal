@@ -4,7 +4,7 @@ STATE ✗ 2026-11-17 未实机（本机无 flatpak/Wayland 宿主）｜SCOPE Lin
 Linux 上点 GUI/flatpak 应用自动化/X11 或 Wayland 下读控件/`xdotool` 不好使/窗口坐标对不上
 ## 命令
 ```bash
-cd ~/.config/term_agent/skill
+cd ~/.config/cli-agent/skill
 ./lin_ui.py prep                        # toolkit-accessibility / a11y bus / backend 三项体检
 ./lin_ui.py tree --app firefox --max 200  # 枚举控件 TSV：id role name extents actions flags
 ./lin_ui.py act --id 1a2b3c4d           # Wayland 首选：走 Action，不动鼠标

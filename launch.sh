@@ -1,4 +1,4 @@
 #!/usr/bin/env bash
 set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec python3 "$HERE/term_agent.py" "$@"
+exec python3 "$HERE/cli-agent.py" "$@"

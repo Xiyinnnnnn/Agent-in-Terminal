@@ -6,7 +6,7 @@ STATE ✓ 2026-11-08｜SCOPE DeepSeek 官方、OpenRouter、OpenCode、CommandCo
 
 ## 命令
 ```bash
-ln -sfn ~/.config/term_agent/skill/token.mjs ~/.local/bin/token   # 首次
+ln -sfn ~/.config/cli-agent/skill/token.mjs ~/.local/bin/token   # 首次
 token ds                      # DeepSeek 官方（全名 deepseek）
 token or                      # OpenRouter（全名 openrouter）
 token oc                      # OpenCode（全名 opencode / zen）

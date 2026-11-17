@@ -8,8 +8,8 @@ from pathlib import Path
 
 HOME = Path(os.path.expanduser("~"))
 BASE = HOME / ".cache/subagent"
-STARTER = HOME / ".local/bin/term_agent/start_agent.sh"
-HOSTPY = HOME / ".local/bin/term_agent/term_agent.py"
+STARTER = HOME / ".local/bin/cli-agent/start_agent.sh"
+HOSTPY = HOME / ".local/bin/cli-agent/cli-agent.py"
 ANSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b[=>]")
 CMDRE = re.compile(r"^\s*命令:\s*(.+)$", re.M)
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]{1,40}$")

@@ -22,7 +22,7 @@
 读取顺序：
 
 1. 环境变量 `DEEPSEEK_API_KEY`。
-2. `~/.config/term_agent/key.bin`。
+2. `~/.config/cli-agent/key.bin`。
 3. 首次启动隐藏输入。
 
 推荐在 Termux 的 shell 配置文件中设置环境变量：

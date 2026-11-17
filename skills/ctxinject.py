@@ -5,7 +5,7 @@ from pathlib import Path
 BASE = Path(os.path.expanduser("~/.cache/ctxinject"))
 PAY = BASE / "payloads"
 WAKE = signal.SIGWINCH
-MARK = "term_agent.py"
+MARK = "cli-agent.py"
 ADB = "127.0.0.1:7957"
 EXT = (".png", ".jpg", ".jpeg", ".gif", ".webp")
 
@@ -144,10 +144,10 @@ def shot(out=None, dev=None, long=None):
     dev = dev or (ADB if ADB in ds else ds[0])
     p = Path(out).expanduser() if out else BASE / ("shot_%s.png" % time.strftime("%Y%m%d-%H%M%S"))
     p.parent.mkdir(parents=True, exist_ok=True)
-    sys.path.insert(0, str(Path.home() / ".local/bin/term_agent"))
+    sys.path.insert(0, str(Path.home() / ".local/bin/cli-agent"))
     z = None
     try:
-        from term_agent import _shrink_raw
+        from cli-agent import _shrink_raw
         b = subprocess.run(["adb", "-s", dev, "exec-out", "screencap"], capture_output=True, timeout=90).stdout
         z = _shrink_raw(b, long) if len(b) >= 16 else None
     except Exception as e:

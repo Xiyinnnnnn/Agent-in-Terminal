@@ -3,7 +3,7 @@ import argparse, hashlib, json, os, re, shutil, subprocess, sys
 from pathlib import Path
 
 BASE = Path.home() / ".cache/videowatch"
-CTX = Path.home() / ".config/term_agent/skill/ctxinject.py"
+CTX = Path.home() / ".config/cli-agent/skill/ctxinject.py"
 URL = re.compile(r"^https?://", re.I)
 VEXT = (".mp4", ".mkv", ".webm", ".mov", ".flv", ".m4v", ".avi")
 

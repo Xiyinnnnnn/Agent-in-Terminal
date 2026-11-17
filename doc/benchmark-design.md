@@ -3,7 +3,7 @@
 > 历史实验记录（2026-09）：本节的 cc-proxy 与模型路由是当时冻结的 benchmark 环境，不是当前项目运行配置。当前主程序已改为直连 DeepSeek 官方 API，见 README 与本文件外的 `doc/dev.md`。
 
 > 项目：**Long-Horizon Coding-Agent Recovery Benchmark**
-> 目的：在统一宿主环境（term_agent.py CLI Agent）下，考核 3 个长文本 Coding Agent 在多阶段长任务 + 人为中断恢复场景中的真实工程能力。
+> 目的：在统一宿主环境（cli-agent.py CLI Agent）下，考核 3 个长文本 Coding Agent 在多阶段长任务 + 人为中断恢复场景中的真实工程能力。
 > 执行日期：2026-09-08 ~ 09-09 ｜ 冻结版本：1.0-freeze（`config/frozen.json`，全程未改）
 
 ---
@@ -12,7 +12,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 被测 Harness | `term_agent.py`（631 行单文件 CLI，git `730fe87`）——真实日常使用中的宿主 |
+| 被测 Harness | `cli-agent.py`（631 行单文件 CLI，git `730fe87`）——真实日常使用中的宿主 |
 | API 入口 | cc-proxy 统一反代 `http://127.0.0.1:3050/v1` |
 | 三模型 | **DSVF** = `deepseek/deepseek-v4-flash`；**GLM** = `z-ai/glm-5.3-flash`；**MiMo** = `xiaomi/mimo-v2.5-pro` |
 

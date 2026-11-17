@@ -1,30 +1,31 @@
-# AGENT IN TERMINAL
+# CLI-Agent++
 
 ![license](https://img.shields.io/badge/license-MIT-1e90ff?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square)
 ![deps](https://img.shields.io/badge/dependencies-Pillow-2ea44f?style=flat-square)
+![deps](https://img.shields.io/badge/skill%20deps-node%20%7C%20ffmpeg%20%7C%20chromium%20%7C%20yt--dl-2ea44f?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-linux%20%7C%20termux-f59e0b?style=flat-square)
 
-超轻量CLI Agent：单文件宿主 + 配套技能集 + Shell 工具执行。
+超轻量 CLI Agent：单文件宿主 + 配套技能集 + Shell 工具执行。
 
 ## QUICK START
 
 ```bash
-curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/Agent-in-Terminal@main/install.sh | bash
+curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/cli-agent-plus-plus@main/install.sh | bash
 ```
 
 首次运行输入 DeepSeek API Key：
-- 加密落盘（`~/.config/term_agent/key.bin`）
+- 加密落盘（`~/.config/cli-agent/key.bin`）
 
 ## USAGE
 
 ```bash
-# Linux：python3 ~/.local/bin/term_agent/term_agent.py
+# Linux：python3 ~/.local/bin/cli-agent/cli-agent.py
 
 # Termux：agent
 ```
 
-API 端点与模型写在 `term_agent.py` 顶部常量中（`API_URL` / `MODEL` / `MAX_TOK` / `MAX_OUT`），可自行修改。
+API 端点与模型写在 `cli-agent.py` 顶部常量中（`API_URL` / `MODEL` / `MAX_TOK` / `MAX_OUT`），可自行修改。
 
 ## KEY BINDINGS 快捷键
 
@@ -45,7 +46,7 @@ flowchart TD
     D --> F
     E --> F
     F --> G["key store<br/>encrypt/decrypt 机器种子"]
-    F --> H["memory / skill / taskbook<br/>~/.config/term_agent/*.md"]
+    F --> H["memory / skill / taskbook<br/>~/.config/cli-agent/*.md"]
 ```
 
 | 层 | 组件 | 职责 |

@@ -4,7 +4,7 @@ STATE ✓ 2026-11-17｜SCOPE adb 可达的 Android：读控件树、点元素、
 点某个按钮/元素点不到/要控件信息/读列表有哪些项/只有截图没有控件/游戏·画布·视频页/坐标量不准/`uiautomator` 报 already registered
 ## 命令
 ```bash
-cd ~/.config/term_agent/skill; export TMPDIR=$HOME/.cache; D=127.0.0.1:7957
+cd ~/.config/cli-agent/skill; export TMPDIR=$HOME/.cache; D=127.0.0.1:7957
 ./uitree.py -s $D tree                  # 剪枝后可点集 TSV：id role label rid bounds center flags
 ./uitree.py -s $D tree --all            # 不剪枝，排查"为什么没出现"
 ./uitree.py -s $D check                 # 连 dump 两次比 id 稳定性

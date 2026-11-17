@@ -1,14 +1,14 @@
 set -e
 
-REPO="Xiyinnnnnn/Agent-in-Terminal"
+REPO="Xiyinnnnnn/cli-agent-plus-plus"
 BRANCH="main"
 RAW_BASE="https://raw.githubusercontent.com/$REPO/$BRANCH"
 CDN_BASE="https://cdn.jsdelivr.net/gh/$REPO@$BRANCH"
 API_BASE="https://api.github.com/repos/$REPO/contents"
 
-DEST="$HOME/.local/bin/term_agent"
+DEST="$HOME/.local/bin/cli-agent"
 APPS="$HOME/.local/share/applications"
-CONFIG_DIR="$HOME/.config/term_agent"
+CONFIG_DIR="$HOME/.config/cli-agent"
 MEMORY_DIR="$CONFIG_DIR/memory"
 SKILL_DIR="$CONFIG_DIR/skill"
 INSTALLED_REC="$SKILL_DIR/.repo-skills"   
@@ -63,9 +63,9 @@ dl() {
     fi
 }
 
-dl term_agent.py "$DEST/term_agent.py"
-dl term-agent.desktop "$APPS/term-agent.desktop"
-chmod +x "$DEST/term_agent.py" "$APPS/term-agent.desktop"
+dl cli-agent.py "$DEST/cli-agent.py"
+dl cli-agent.desktop "$APPS/cli-agent.desktop"
+chmod +x "$DEST/cli-agent.py" "$APPS/cli-agent.desktop"
 
 list_skills_api() {
     curl -fsSL "$API_BASE/skills?ref=$BRANCH" 2>/dev/null | python3 -c '
@@ -123,14 +123,14 @@ if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
     mkdir -p "$PREFIX/bin"
     cat > "$PREFIX/bin/agent" <<EOF
 #!/data/data/com.termux/files/usr/bin/bash
-exec python3 "$DEST/term_agent.py" "\$@"
+exec python3 "$DEST/cli-agent.py" "\$@"
 EOF
     chmod +x "$PREFIX/bin/agent"
 fi
 
 if [ ! -f "$CONFIG_DIR/key.bin" ]; then
     echo "First run will guide you to enter API Key (getpass, machine-bound encrypted)"
-    echo "Or run ahead: python3 $DEST/term_agent.py and follow the prompts"
+    echo "Or run ahead: python3 $DEST/cli-agent.py and follow the prompts"
 fi
 
 echo ""
@@ -138,7 +138,7 @@ echo "Installation complete!"
 if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
     echo "   Run in terminal: agent"
 else
-    echo "   Run in terminal: python3 $DEST/term_agent.py"
+    echo "   Run in terminal: python3 $DEST/cli-agent.py"
 fi
 echo ""
 echo "   Tip: new terminal = new conversation; ask the agent to modify its own parameters if needed"

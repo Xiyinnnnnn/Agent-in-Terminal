@@ -13,7 +13,7 @@ STATE ✓ 2026-10-29｜SCOPE 派活给持久子代理并在完成/授权时收�
 
 ## 命令
 ```bash
-S=~/.config/term_agent/skill/subagent.py
+S=~/.config/cli-agent/skill/subagent.py
 python3 $S start -n job1 --task "只回复 ok，不调工具"   # 启动并入监听，返回即事件
 python3 $S watch -n job1                               # 续等下一事件
 python3 $S send  -n job1 -m "继续第 2 步"

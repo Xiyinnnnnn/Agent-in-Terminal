@@ -11,7 +11,7 @@ import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 
-const CFG = path.join(os.homedir(), '.config/term_agent');
+const CFG = path.join(os.homedir(), '.config/cli-agent');
 const KEYBIN = path.join(CFG, 'key.bin');
 
 // ── 参数 ──
@@ -101,7 +101,7 @@ async function runDeepSeek() {
   }
   if (!KEY) { const s = decodeKeyBin(); if (/^sk-/.test(s)) KEY = s; }
   if (!KEY) {
-    console.error('无 DeepSeek key：设 DEEPSEEK_API_KEY，或写入 ~/.config/term_agent/deepseek.key');
+    console.error('无 DeepSeek key：设 DEEPSEEK_API_KEY，或写入 ~/.config/cli-agent/deepseek.key');
     return 2;
   }
 
@@ -205,7 +205,7 @@ async function runOpenRouter() {
   const BASE = (process.env.OPENROUTER_API_BASE || 'https://openrouter.ai/api/v1').replace(/\/+$/, '');
   const KEY = opt('--key') || keyFile(path.join(CFG, 'openrouter.key')) || (process.env.OPENROUTER_API_KEY || '').trim();
   if (!KEY) {
-    console.error('无 OpenRouter key。获取：https://openrouter.ai/settings/keys\n配置：export OPENROUTER_API_KEY=... 或写入 ~/.config/term_agent/openrouter.key（chmod 600）');
+    console.error('无 OpenRouter key。获取：https://openrouter.ai/settings/keys\n配置：export OPENROUTER_API_KEY=... 或写入 ~/.config/cli-agent/openrouter.key（chmod 600）');
     return 2;
   }
   const r1 = await get(BASE + '/key', KEY);
@@ -257,7 +257,7 @@ async function runOpenCode() {
   const BASE = (process.env.OPENCODE_API_BASE || 'https://opencode.ai/inference').replace(/\/+$/, '');
   const KEY = opt('--key') || keyFile(path.join(CFG, 'opencode.key')) || (process.env.OPENCODE_API_KEY || '').trim();
   if (!KEY) {
-    console.error('无 OpenCode key。获取：Console → Account › Personal API keys（前缀 oc_sk_）\n配置：export OPENCODE_API_KEY=... 或写入 ~/.config/term_agent/opencode.key');
+    console.error('无 OpenCode key。获取：Console → Account › Personal API keys（前缀 oc_sk_）\n配置：export OPENCODE_API_KEY=... 或写入 ~/.config/cli-agent/opencode.key');
     return 2;
   }
   const r = await get(BASE + '/v1/models', KEY);
@@ -285,7 +285,7 @@ async function runCommandCode() {
   const base = (process.env.CC_API_BASE || 'https://api.commandcode.ai').replace(/\/+$/, '');
   const KEY = opt('--key') || (process.env.CC_KEY || '').trim() || (process.env.CC_KEY_FILE ? keyFile(process.env.CC_KEY_FILE) : '') || decodeKeyBin();
   if (!KEY) {
-    console.error('无 key（--key / CC_KEY / ~/.config/term_agent/key.bin）');
+    console.error('无 key（--key / CC_KEY / ~/.config/cli-agent/key.bin）');
     return 2;
   }
   const headers = {

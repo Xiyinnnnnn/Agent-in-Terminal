@@ -5,7 +5,7 @@ key.bin = base64(明文 ^ sha256(machine-id))，只进 Authorization 头。
 授权由 agent 在本体对话中取得，脚本不含开关。"""
 import base64, hashlib, json, os, sys, time, urllib.error, urllib.request
 
-CFG = os.path.expanduser("~/.config/term_agent")
+CFG = os.path.expanduser("~/.config/cli-agent")
 KEYBIN = os.path.join(CFG, "key.bin")
 BASE = "http://127.0.0.1:3050/v1"
 MODEL = "moonshotai/Kimi-K3.1-Pro"
