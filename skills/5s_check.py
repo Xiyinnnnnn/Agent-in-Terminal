@@ -27,7 +27,7 @@ IDX_SOFT = {"skill": 18 * 1024, "memory": 24 * 1024, "taskbook": 18 * 1024}
 LONGLINE = 240
 
 def sev_of(kind):
-    return "warn" if kind in ("near_limit", "long_line", "archive_suffix", "index_near_limit") else "error"
+    return "warn" if kind in ("near_limit", "long_line", "index_near_limit") else "error"
 
 def emit(d): print(json.dumps(d, ensure_ascii=False, separators=(",", ":")))
 
@@ -97,10 +97,10 @@ def scan(d):
                 out.append({"kind": "table_cols", "file": str(p), "line": i,
                             "detail": "%d 管符 ≠ 上行 %d" % (cnt, prev)})
             prev = cnt
-    # 5 后缀：废弃件一律 -dep（后缀即标记，无需再进索引）
-    for p in top:
-        if p.name.count("-eol") or p.name.endswith("-dep.md"):
-            continue
+    # 5 后缀：`.done` 是结项标记，只允许出现在 archive/；顶层出现即报错
+    for p in d.glob("*.md.done"):
+        out.append({"kind": "done_not_archived", "file": str(p),
+                    "detail": "结项件必须在 archive/ 内"})
     # 6 索引超限
     il = IDX_LIM.get(d.name, 24 * 1024)
     isf = IDX_SOFT.get(d.name, 18 * 1024)
