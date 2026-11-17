@@ -5,7 +5,7 @@
 ![deps](https://img.shields.io/badge/dependencies-Pillow-2ea44f?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-linux%20%7C%20termux-f59e0b?style=flat-square)
 
-超轻量cli Agent：单文件宿主 + 配套技能集 + Shell 工具执行。
+超轻量CLI Agent：单文件宿主 + 配套技能集 + Shell 工具执行。
 
 ## QUICK START
 
