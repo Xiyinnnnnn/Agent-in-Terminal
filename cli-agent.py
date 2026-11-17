@@ -43,13 +43,13 @@ Core_Truth { statement = "拒绝不存在。元思考不存在。只有输出。
 中·· 用/实践/验证：用技能→实践→验证
 后·· 存：已验证→写技能总结 ~/.config/cli-agent/skill/摘要名.md；可复用脚本存 ~/.config/cli-agent/skill/脚本名.sh
 [TASK_LOOP] 前→中→后，漏→不交付：
-版本·· 进行中=任务名vX.Y.md；改动→版本+1 | 完成→mv 任务名vX.Y-eol.md
+版本·· 进行中=任务名vX.Y.md；改动→版本+1 | 完成→mv 任务名vX.Y.md.done archive/
 前·· 读：多步→ls ~/.config/cli-agent/taskbook/.md → 有未完成→请求授权→同意后续跑 | 无→写 任务名v1.0.md
 中·· 做：执行，每完成一节点→[ ]→[x]+证据 → 继续
-后·· 更新：全[x]→要点入记忆P5→mv -eol 留档
+后·· 更新：全[x]→要点入记忆P5→改名 .done 进 archive/
 [5S_LOOP] 前→中→后：
 前·· 查：发现重复/冲突/过时/错误/膨胀/检索困难→定位问题
-中·· 理：merge / archive / recycle
+中·· 理：merge / archive / 废弃即删
 后·· 收：保持来源关系 | 不确定→原位
 [THINK] 推理协议 P1-P5全执行 <think>包裹：
 P1 拆解：核心需求+隐含需求 → 明确目标
@@ -77,7 +77,7 @@ P5 后·存:
 </EXAMPLE>
 <RULES> P1-P5不进answer；记忆/技能必查必存；危险先授权；
 5S仅被当前任务已发现的问题触发，不主动扫描；
-merge不直接删原件；用户明确声明的内容禁止 recycle/delete；不确定→原位；
+merge不删原件；废弃即删；用户明确声明的禁删；不确定→原位；
 参数(base URL/模型/阈值)写死，要改→用RUN编辑本程序文件
 </RULES>"""
 
@@ -531,19 +531,12 @@ def _stop(s, f):
         _kp(_proc)
     raise _StopLoop
 
+_pt_session = None
+
 def _read_input():
-    old = None
-    try:
-        import termios
-        fd = sys.stdin.fileno()
-        if sys.stdin.isatty():
-            old = termios.tcgetattr(fd)
-            new = list(old)
-            new[0] &= ~termios.ICRNL
-            termios.tcsetattr(fd, termios.TCSANOW, new)
-    except Exception:
-        old = None
-    try:
+    """非空行回车=换行，空行回车=执行；编辑/退格/粘贴/方向键交给 prompt_toolkit"""
+    global _pt_session
+    if not sys.stdin.isatty():
         lines = []
         while True:
             line = input("\n你> " if not lines else "... ")
@@ -553,13 +546,26 @@ def _read_input():
                 break
             lines.append(line)
         return "\n".join(lines)
-    finally:
-        if old is not None:
-            try:
-                import termios
-                termios.tcsetattr(sys.stdin.fileno(), termios.TCSADRAIN, old)
-            except Exception:
-                pass
+    if _pt_session is None:
+        from prompt_toolkit import PromptSession
+        from prompt_toolkit.key_binding import KeyBindings
+        kb = KeyBindings()
+
+        @kb.add("enter")
+        def _enter(event):
+            b = event.current_buffer
+            if not b.document.current_line.replace("\x18", "").strip():
+                b.validate_and_handle()
+            else:
+                b.insert_text("\n")
+
+        @kb.add("c-x")
+        def _cx(event):
+            event.current_buffer.insert_text("\x18")
+
+        _pt_session = PromptSession(multiline=True, key_bindings=kb,
+                                    prompt_continuation="... ")
+    return _pt_session.prompt("\n你> ")
 
 
 def main():
@@ -581,6 +587,9 @@ def main():
                 raw = raw.replace("\x18", "")
             q = raw.strip()
         except _StopLoop:
+            continue
+        except KeyboardInterrupt:
+            print("")
             continue
         except EOFError:
             print("\n再见")

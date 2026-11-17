@@ -66,7 +66,8 @@ else
   for i in "PIL|Pillow" "numpy|numpy" "lxml|lxml" "cryptography|cryptography" \
            "markitdown|markitdown[docx,pdf,pptx]" "openpyxl|openpyxl" "xlrd|xlrd" \
            "pptx|python-pptx" "mammoth|mammoth" "pdfplumber|pdfplumber" \
-           "selenium|selenium" "fpdf|fpdf2" "fontTools|fonttools"; do
+           "selenium|selenium" "fpdf|fpdf2" "fontTools|fonttools" \
+           "prompt_toolkit|prompt_toolkit"; do
     m="${i%%|*}"; s="${i#*|}"
     if "$PY" -c "import $m" >/dev/null 2>&1; then ok "$m"
     elif "$PY" -m pip install --no-input -q $PF "$s" >/dev/null 2>&1; then ok "$s"
