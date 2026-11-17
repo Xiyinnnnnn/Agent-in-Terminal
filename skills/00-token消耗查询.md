@@ -1,5 +1,5 @@
 # token消耗查询 — 四供应商 token 消耗 / 额度
-STATE ✓ 2026-11-08｜SCOPE DeepSeek 官方、OpenRouter、OpenCode、CommandCode 四家余额与用量；`provider` 字段切换｜SCRIPT `token.mjs`｜REF `memory/反代-用量与额度查询现状.md`
+STATE ✓ 2026-11-08｜SCOPE DeepSeek 官方、OpenRouter、OpenCode、CommandCode 四家余额与用量；`provider` 字段切换｜SCRIPT `token.mjs`
 
 ## 何时用
 问「DeepSeek 还剩多少钱 / 消耗多快」「OpenRouter 余额与 key 限额」「OC key 还有效吗」「CommandCode 月额度 / 5 小时额度」时。

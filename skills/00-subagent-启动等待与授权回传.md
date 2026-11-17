@@ -1,6 +1,6 @@
 # subagent-启动等待与授权回传
 
-STATE ✓ 2026-10-29｜SCOPE 派活给持久子代理并在完成/授权时收回控制权｜SCRIPT `subagent.py`｜REF `memory/archive/subagent-tmux管道与非tty授权通道.md`
+STATE ✓ 2026-10-29｜SCOPE 派活给持久子代理并在完成/授权时收回控制权｜SCRIPT `subagent.py`
 
 ## 何时用
 | 条件 | 动作 |

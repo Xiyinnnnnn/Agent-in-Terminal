@@ -1,5 +1,5 @@
 # 图形界面操作（Android / termux+adb）
-STATE ✓ 2026-11-17｜SCOPE adb 可达的 Android：读控件树、点元素、截图量坐标｜SCRIPT `uitree.py`｜PRUNE 4 条：面积≥64 且与屏相交 · 信号保留(clickable/scrollable/text/desc/控件类) · 吸收(可点祖先吞子) · 反吸收(行内≥2文案拆开)｜REF `memory/图形界面操作-UiAutomation占用与dump失效.md`
+STATE ✓ 2026-11-17｜SCOPE adb 可达的 Android：读控件树、点元素、截图量坐标｜SCRIPT `uitree.py`｜PRUNE 4 条：面积≥64 且与屏相交 · 信号保留(clickable/scrollable/text/desc/控件类) · 吸收(可点祖先吞子) · 反吸收(行内≥2文案拆开)
 ## 何时用
 点某个按钮/元素点不到/要控件信息/读列表有哪些项/只有截图没有控件/游戏·画布·视频页/坐标量不准/`uiautomator` 报 already registered
 ## 命令
