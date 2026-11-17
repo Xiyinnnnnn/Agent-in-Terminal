@@ -1,132 +1,150 @@
-# CLI-Agent（宿主）
+# 宿主开发
 
-## 是什么
-零依赖 Python 单文件终端 Agent（零注释风格）。OpenAI 兼容 API，bash 工具执行
+STATE ✓ 2026-11-17｜SCOPE 单文件宿主 `cli-agent.py`：对话循环、压缩、授权闸门、图片编码；技能集见 `README` 与 `skills/`
 
-## 运行与数据
-- 入口：本目录 `cli-agent.py`（python3.14）
-- 桌面：`~/Desktop/cli-agent.desktop` → `python3 ~/.local/bin/cli-agent/cli-agent.py`
-- 数据：`~/.config/cli-agent/` = `key.bin`（加密 API Key）+ `memory/` `skill/` `taskbook/`（agent 自产 md）
+## 分层
 
-## 全局常量
-| 常量 | 值 | 用途 |
+完整能力 = 依赖 + 宿主 + 技能集，缺一层只覆盖部分场景。
+
+| 层 | 负责 | 位置 |
 |---|---|---|
-| API_URL | `http://127.0.0.1:3050/v1/chat/completions` | 本地反代（OpenAI 兼容） |
-| MODEL | `deepseek/deepseek-v4-flash` | CC 上游模型 ID（形如 `vendor/model`） |
-| MAX_TOK | 524288 | **上下文压缩阈值**（usage 超此值触发压缩），非输出上限 |
-| MAX_OUT | 32768 | 输出 max_tokens；压缩请求用 `MAX_OUT//4` |
-| MAX_READ | 30000 | 工具结果回读截断上限（超出加 `[已省略 N 字符]`） |
-| MAX_CMD | 6000 | 单条命令字符上限；超出不执行，回执 `[超出上限] N>6000 字符，请分块` |
-| REASONING_EFFORT | high | 推理强度（body.`reasoning_effort`） |
-| AUTH_TIMEOUT | 30 | `dangerous=true` 时的授权等待秒数；`<=0` 退回阻塞式 `input()` |
-| SYSTEM | 内置提示词常量 | 每个请求的 system 消息（**不随代码同步覆盖**，见文末） |
-| TOOLS | RUN 工具 schema | 工具定义 |
+| 依赖 | 语言运行时、系统工具（chromium/ffmpeg/yt-dlp）、pip/npm 包 | `install.sh` 一次装齐 |
+| 宿主 | 对话、压缩、工具调用、授权闸门 | `cli-agent.py`（单文件） |
+| 技能 | 某件事怎么做：命令、参数、失败处置 | `skills/*.md` + 同目录脚本 |
 
-## 核心循环（main）
-```
-mem_hist = []            # 消息列表 [user/assistant/tool]
-summaries = []           # append-only 快照链
-loop:
-  q = input()            # Ctrl+Space(0x00) 清空缓冲；Ctrl+X(0x18) 置压缩标志
-  mem_hist.append(user q)
-  inner loop:
-    if need_compress:
-      last_u = 最后一个 user 消息下标
-      ns = compress(mem_hist[:last_u], summaries)
-      if ns is None: break
-      summaries.append(ns)
-      mem_hist = mem_hist[last_u:]
-      need_compress = False
-    resp = llm(build_context(mem_hist, summaries))   # 流式；select 0s 轮询 stdin
-    if resp None/API_ERROR: retry>10 → need_compress=True
-    if resp.usage > MAX_TOK: need_compress=True
-    否则处理 content / tool_calls（循环执行 RUN 并回填）
-```
-中断语义：流式收包与命令执行期间都 `select` 轮询 stdin ——`0x00` 抛 `_StopLoop` 立刻回主循环，`0x18` 置 `_compress_requested` 供下一轮压缩。
+宿主只暴露 `RUN`（shell 执行）一个工具；具体能力由技能把工具用出来，依赖决定这些技能能不能跑起来。扩能力只加技能，不改宿主。
 
-## 上下文 = 快照链 + 历史
-```
-build_context: [system SYSTEM] + [user s for s in summaries] + mem_hist
-compress:      [system SYSTEM] + [user s for s in summaries] + hist + [user "[总结所有]"]
-               → llm(stream=False, think=False, max_tokens=MAX_OUT//4)
-               → 返回 "历史背景：" + 新快照文本
-```
-- 快照链 append-only：旧快照永不变更/不移除（prefix immutable）
-- 压缩请求复用完整前缀 → 最大化 KV 命中
-- 连续多条 user 消息（快照链）最大KV命中率设计
+## 运行期数据
 
-## 安全模式（模型标志分流）
-
-判定权在模型。宿主不扫描命令内容，只读 `RUN` 入参的 `dangerous` 布尔值决定走哪条路。
-
-| dangerous | 路径 | 代码 |
-|---|---|---|
-| `false` | 直接 `subprocess` 执行 | `RUN` 内跳过闸门 |
-| `true` | 弹确认块，用户 `Y` 才执行 | `confirm_block(cmd)` |
-
-| 事实 | 后果 |
+| 路径 | 内容 |
 |---|---|
-| 代码侧已无 `match_danger` / `DANGER_BL` / `PIPE_PATTERNS` / `_first_hit` / `_split_segs` | 无黑名单、无正则、无剥壳、无命令替换解析 |
-| 模型误标 `false` | 命令直接执行，宿主无兜底（有意设计） |
-| 判定口径只在 `SYSTEM` 的 `[SAFETY]` 段 + `TOOLS` 的 `dangerous` 描述 | 改口径只动这两处，不动代码 |
+| `~/.config/cli-agent/skill/` | 技能工作副本（`install.sh` 从 `skills/` 复刻） |
+| `~/.config/cli-agent/memory/` | 结论、实测数字、坑 |
+| `~/.config/cli-agent/taskbook/` | 多步任务进度与证据 |
+| `~/.config/cli-agent/key.bin` | 加密 API Key（机器绑定） |
 
-### 授权闸门（confirm_block）
+## 位置
+
+| 项 | 值 |
+|---|---|
+| 仓库内 | `cli-agent.py`（根目录） |
+| 安装后 | `~/.local/bin/cli-agent/cli-agent.py` |
+| 数据根 | `~/.config/cli-agent/`：`key.bin` + `memory/` `skill/` `taskbook/` |
+| 依赖 | Python 3.10+、Pillow；系统包与 pip/npm 由 `install.sh` 装 |
+
+## 常量
+
+| 常量 | 值 | 作用 |
+|---|---|---|
+| API_URL | `http://127.0.0.1:3050/v1/chat/completions` | 本地反代；云端镜像版为 `api.deepseek.com` |
+| MODEL | `deepseek/deepseek-v4-flash` | CC 上游模型 ID（`vendor/model`） |
+| MAX_TOK | 524288 | 压缩阈值（usage 超此值触发），非输出上限 |
+| MAX_OUT | 32768 | 输出 max_tokens；压缩请求用 `MAX_OUT//4` |
+| MAX_READ | 30000 | 工具结果回读截断，超出追加 `[已省略 N 字符]` |
+| MAX_CMD | 6000 | 单条命令字符上限，超出不执行 |
+| REASONING_EFFORT | high | 请求体 `reasoning_effort` |
+| AUTH_TIMEOUT | 30 | 授权等待秒数；≤0 退回阻塞 `input()` |
+
+## 主循环
+
+```python
+mem_hist = []; summaries = []
+while True:
+    q = input()                       # 0x00 清缓冲 / 0x18 置压缩标志
+    mem_hist.append(user q)
+    while True:
+        if need_compress: ...          # 见「压缩」
+        resp = llm(build_context(mem_hist, summaries))
+        if resp.usage > MAX_TOK: need_compress = True
+        if tool_calls: RUN 执行并回填; continue
+        break
+```
+
+## 压缩
+
+| 项 | 值 |
+|---|---|
+| 触发 | `usage > MAX_TOK`，或连续 10 次 API 失败，或 `Ctrl+X` |
+| 切点 | 最后一个 user 消息之前；其后的历史保留 |
+| 产物 | `"历史背景：" + 新快照`，append 到 `summaries`，旧快照不可变 |
+| 请求 | 复用完整前缀（最大化 KV 命中）、非流式、`think=False`、`max_tokens=MAX_OUT//4` |
+
+## 安全
+
+| 项 | 值 |
+|---|---|
+| 判定权 | 模型：`RUN` 入参的 `dangerous` 布尔值 |
+| 宿主角色 | 不扫描命令内容，不解析管道、替换、剥壳 |
+| `false` | `subprocess` 直接执行 |
+| `true` | `confirm_block()` 弹确认，`y` + 回车才执行 |
+| 误标 `false` | 直接执行，无兜底（有意设计） |
+| 口径所在 | `SYSTEM` 的 `[SAFETY]` 段 + `TOOLS` 的 `dangerous` 描述；代码不参与判定 |
+
+## 授权闸门 confirm_block
 
 | 项 | 行为 |
 |---|---|
-| 预输入 | 进闸门前 `tcflush(TCIFLUSH)`，封死"没看提示就被放行" |
-| 归一化 | `NFKC` + strip + lower，全角 `ｙ/Ｙ/ｎ/Ｎ` 等效半角 |
-| 接受 | `y` / `yes` + **回车**；单键不算（防误触） |
-| 超时 | `AUTH_TIMEOUT` 秒无输入 → 自动拒绝 |
-| 非法输入 | 重问；`Ctrl+C` / `Ctrl+D` → 拒绝 |
+| 预输入 | 进闸门前 `tcflush(TCIFLUSH)`，防"没看提示就被放行" |
+| 归一化 | NFKC + strip + lower，全角 `ｙ/ｎ` 等效半角 |
+| 接受 | `y` / `yes` + 回车；单键不算 |
+| 超时 | `AUTH_TIMEOUT` 秒无输入 → 拒绝 |
 | 拒绝回执 | `[已拒绝] 危险命令未执行（模型标记 dangerous=true）` |
 
-## 进程回收
-- `RUN` 用 `start_new_session=True` 建独立进程组
-- `_kp(p)` **无条件** `killpg(SIGKILL)`：主进程已退出时，组内孙进程可能仍持有 tty 并读走键盘输入
-  （曾表现为"授权按了 y 却毫无反应"）；旧版 `if p.poll() is None` 守卫会让这步被整体跳过
-- `RUN` 的 `finally` 统一 `_kp(_proc)`，避免残留
+## 函数
 
-## 崩溃兜底
-`q=_img(q)` 包 `try/except`：未闭合引号（`shlex.split` 抛 `ValueError`）等异常按纯文本处理，不再退出主循环。
-
-## 函数地图
 | 函数 | 职责 |
 |---|---|
-| main | 交互循环 + 压缩调度 + 工具循环 |
-| llm | OpenAI 兼容请求，流式解析 content/reasoning/tool_calls/usage；stdin 轮询支持中断 |
-| build_context | SYSTEM + 快照链 + 历史 |
-| compress | 压缩历史 → 新快照（append） |
+| main | 交互循环、压缩调度、工具回填 |
+| llm | OpenAI 兼容流式请求；`select` 轮询 stdin 支持中断 |
+| build_context | `SYSTEM` + 快照链 + `mem_hist` |
+| compress | 历史 → 新快照（append-only） |
 | sanitize_hist | 丢弃 tool_calls 与 tool 回填不配对的消息段 |
-| confirm_block | 授权闸门（tcflush + NFKC + 回车确认），由 `dangerous` 标志触发 |
-| RUN | 执行命令，select 边读边响应中断，超时 3600s |
-| _kp | 无条件 killpg 回收整组 |
-| _img / _shrink / _shrink_raw / _dec / _enc | 图片转 base64（自研解码，无外部依赖） |
-| load/save_api_key | key.bin 读写（machine-id XOR + base64，0600） |
+| confirm_block | 授权闸门 |
+| RUN | 执行命令，边读边响应中断，超时 3600s |
+| _kp | 无条件 `killpg(SIGKILL)` 回收整组 |
+| _img / _shrink / _shrink_raw / _dec / _enc | 图片编码，自研无外部依赖 |
+| load/save_api_key | `key.bin` 读写（machine-id XOR + base64，0600） |
 
 ## 密钥
-`API_KEY = load_api_key()` 只从 `~/.config/cli-agent/key.bin` 读，源码内不含明文 Key；
-缺失时 `main` 调 `welcome()` 向导写入（保存即 `chmod 600`）。换 Key 只需重写 key.bin，不必改源码。
 
-## 改哪 / 怎么验
-- 改提示词 → `SYSTEM`（**同步到别的机器时严禁整文件覆盖**：本仓库这份是 Bazzite，Termux 侧有其自己的环境口径）
-- 改闸门 → `confirm_block`（`tcflush` 与 `NFKC` 两处都不要回退）
-- 改判定权 → 只动 `SYSTEM` 的 `[SAFETY]` 段与 `TOOLS` 的 `dangerous` 描述，代码侧不参与判定
-- 改压缩 → `compress` / `build_context` / `main` 压缩段（三处联动）
-- 语法：`python3 -m py_compile cli-agent.py`
-- 危险判定回归（不启动宿主，直接加载模块）：
-```python
+`load_api_key()` 只读 `~/.config/cli-agent/key.bin`，源码不含明文；缺失时 `welcome()` 向导写入并 `chmod 600`。换 key 重写该文件即可。
+
+## 改哪验哪
+
+| 要改 | 动哪里 |
+|---|---|
+| 提示词 | `SYSTEM` 常量；跨机器同步禁整文件覆盖（各机器有各自的 `[SYS]` 口径） |
+| 闸门 | `confirm_block`，`tcflush` 与 NFKC 两处不回退 |
+| 判定权 | 只动 `SYSTEM` 的 `[SAFETY]` 段与 `TOOLS` 的 `dangerous` 描述 |
+| 压缩 | `compress` / `build_context` / `main` 压缩段，三处联动 |
+| 图片 | `_img` 系列 |
+
+```bash
+python3 -m py_compile cli-agent.py
+python3 - <<'PY'
 import importlib.util
 spec = importlib.util.spec_from_file_location("ta", "cli-agent.py")
 m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
 assert not hasattr(m, "match_danger")
 assert m.RUN({"command": "echo hi", "explain": "t", "dangerous": False}).startswith("退出码 0")
+PY
 ```
 
 ## 约束
-- 新终端 = 新对话（`mem_hist` 纯内存，无持久化）
-- 压缩请求非流式、关闭思考（`think=False`）
-- 依赖 `readline`（交互输入）
-- 单命令执行上限 3600s，超时整组 kill
-- 单条命令长度上限 6000 字符（`MAX_CMD`）：大文件写入靠分块追加，别指望一条塞完
-- 零注释风格：解释写进本文件，源码不写行内注释
+
+| 项 | 值 |
+|---|---|
+| 会话 | 新终端 = 新对话；`mem_hist` 纯内存，不落盘 |
+| 中断 | 流式收包与命令执行期间均 `select` 0s 轮询 stdin |
+| 命令超时 | 3600s，超时整组 kill |
+| 命令长度 | 6000 字符（`MAX_CMD`），大文件写入分块追加 |
+| 注释 | 源码零注释，解释只在本文件 |
+
+## 坑
+
+| 现象 | 原因 | 处置 |
+|---|---|---|
+| 授权按 `y` 毫无反应 | 主进程退出后孙进程仍持有 tty 读走输入 | `_kp` 无条件 `killpg`，不加 `poll()` 守卫 |
+| 未闭合引号导致主循环退出 | `shlex.split` 抛 `ValueError` | `q=_img(q)` 的 try/except 按纯文本处理 |
+| 压缩后图片丢失 | 快照只存文本 | 图片原文只保留在 `mem_hist` 未压缩段 |
+| 上下文明显超长却不压缩 | 只看 `usage` 字段，不数字符 | 依赖 API 返回 usage |

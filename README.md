@@ -6,7 +6,7 @@
 ![deps](https://img.shields.io/badge/skill%20deps-node%20%7C%20ffmpeg%20%7C%20chromium%20%7C%20yt--dl-2ea44f?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-linux%20%7C%20termux-f59e0b?style=flat-square)
 
-超轻量 CLI Agent：单文件宿主 + 配套技能集 + Shell 工具执行。
+超轻量 CLI Agent：依赖 + 单文件宿主 + 配套技能集 + Shell 工具执行。
 
 ## QUICK START
 
@@ -101,4 +101,4 @@ MIT
 
 ## Extras 扩展
 
-- **Agent-Channel（微信/QQ 遥控通道）**：已独立为单独仓库 → [Xiyinnnnnn/Agent-Channel](https://github.com/Xiyinnnnnn/Agent-Channel)
+- **开发文档**：[doc/dev.md](doc/dev.md) — 分层（依赖+宿主+技能集）、常量、安全模型、改哪验哪
