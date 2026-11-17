@@ -9,7 +9,9 @@ CFG = os.path.expanduser("~/.config/cli-agent")
 KEYBIN = os.path.join(CFG, "key.bin")
 BASE = "http://127.0.0.1:3050/v1"
 MODEL = "moonshotai/Kimi-K3.1-Pro"
-LEVELS = {"high": 8192, "max": 16384}  # 档位 → 输出预算
+LEVELS = {"high": 32768, "max": 65536}  # 档位 → 输出预算（2026-11-18 上调：思考链吃满曾导致空返回）
+COST = 0.66  # 单次预算上限（美元），报预算一律按此计
+DEFAULT_LEVEL = "high"
 
 SYSTEM = """[ROLE] 疑难诊断顾问：只出诊断，不接管执行。
 
@@ -53,16 +55,16 @@ def decode_keybin(path=KEYBIN):
 
 
 def main():
-    level = sys.argv[1] if len(sys.argv) > 1 else "high"
+    level = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_LEVEL
     if level in ("-h", "--help") or len(sys.argv) > 2:
-        print("用法: escalate.py [high|max] <<'EOF' … EOF\n")
+        print("用法: escalate.py [high|max] <<'EOF' … EOF   # 默认 high；预算 32768/65536；成本 $0.66/次\n")
         print(HANDOFF)
         return 0
     if level not in LEVELS:
         raise SystemExit("思考等级只能是 high 或 max")
 
     if sys.stdin.isatty():
-        print("用法: escalate.py [high|max] <<'EOF' … EOF   # 交接包走 stdin，不落盘\n")
+        print("用法: escalate.py [high|max] <<'EOF' … EOF   # 交接包走 stdin，不落盘；成本 $0.66/次\n")
         print(HANDOFF)
         return 0
 
@@ -88,7 +90,7 @@ def main():
     )
     t0 = time.time()
     try:
-        with urllib.request.urlopen(req, timeout=300) as f:
+        with urllib.request.urlopen(req, timeout=900) as f:
             d = json.loads(f.read())
     except urllib.error.HTTPError as e:
         raise SystemExit(f"HTTP {e.code}: {e.read().decode(errors='replace')[:600]}")
@@ -98,7 +100,7 @@ def main():
     ch = (d.get("choices") or [{}])[0]
     text = (ch.get("message") or {}).get("content") or ""
     u = d.get("usage") or {}
-    print(f"[ESCALATE] {MODEL} level={level} {time.time()-t0:.1f}s "
+    print(f"[ESCALATE] {MODEL} level={level} cost<=${COST:.2f} {time.time()-t0:.1f}s "
           f"finish={ch.get('finish_reason')} tok={u.get('prompt_tokens')}/{u.get('completion_tokens')}")
     print(text or "[ESCALATE] 空返回：看 completion_tokens 是否被思考链吃满")
     return 0 if text else 1
