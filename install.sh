@@ -1,74 +1,104 @@
-set -e
-
+#!/usr/bin/env bash
+set -uo pipefail
 REPO="Xiyinnnnnn/cli-agent-plus-plus"
 BRANCH="main"
-RAW_BASE="https://raw.githubusercontent.com/$REPO/$BRANCH"
-CDN_BASE="https://cdn.jsdelivr.net/gh/$REPO@$BRANCH"
-API_BASE="https://api.github.com/repos/$REPO/contents"
-
+RAW="https://raw.githubusercontent.com/$REPO/$BRANCH"
+CDN="https://cdn.jsdelivr.net/gh/$REPO@$BRANCH"
+API="https://api.github.com/repos/$REPO/contents"
 DEST="$HOME/.local/bin/cli-agent"
 APPS="$HOME/.local/share/applications"
-CONFIG_DIR="$HOME/.config/cli-agent"
-MEMORY_DIR="$CONFIG_DIR/memory"
-SKILL_DIR="$CONFIG_DIR/skill"
-INSTALLED_REC="$SKILL_DIR/.repo-skills"   
-if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
-    command -v pkg >/dev/null 2>&1 || { echo "[FAIL] 未找到 Termux pkg" >&2; exit 1; }
-    if ! python3 -c 'import PIL' >/dev/null 2>&1; then
-        pkg install -y python python-pillow
-    fi
-else
-    if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import PIL' >/dev/null 2>&1; then
-        if [ "$(id -u)" -eq 0 ]; then
-            ROOT=()
-        elif command -v sudo >/dev/null 2>&1; then
-            ROOT=(sudo)
-        else
-            echo "[FAIL] 安装 Python/Pillow 需要 root 权限（请安装 sudo 或以 root 运行）" >&2
-            exit 1
-        fi
+CFG="$HOME/.config/cli-agent"
+SKILL="$CFG/skill"
+REC="$SKILL/.repo-skills"
+FAIL=0
 
-        if command -v apt-get >/dev/null 2>&1; then
-            "${ROOT[@]}" apt-get install -y python3 python3-pil
-        elif command -v dnf >/dev/null 2>&1; then
-            "${ROOT[@]}" dnf install -y python3 python3-pillow
-        elif command -v pacman >/dev/null 2>&1; then
-            "${ROOT[@]}" pacman -S --needed --noconfirm python python-pillow
-        elif command -v apk >/dev/null 2>&1; then
-            "${ROOT[@]}" apk add python3 py3-pillow
-        else
-            echo "[FAIL] 暂不支持此 Linux 包管理器，请手动安装 Python 3 和 Pillow" >&2
-            exit 1
-        fi
-    fi
+ok() { printf '  ok   %s\n' "$*"; }
+bad() { printf '  FAIL %s\n' "$*" >&2; FAIL=1; }
+
+PLAT=""
+[ -n "${TERMUX_VERSION:-}" ] && PLAT=termux
+if [ -z "$PLAT" ]; then
+  case "$(uname -s)" in
+    Darwin) PLAT=macos ;;
+    Linux)
+      [ -r /etc/os-release ] && . /etc/os-release 2>/dev/null
+      case "${ID:-}" in
+        debian|ubuntu|kali|raspbian|linuxmint|pop|deepin) PLAT=debian ;;
+        arch|manjaro|endeavouros) PLAT=arch ;;
+        fedora|rhel|centos|rocky|almalinux) PLAT=dnf ;;
+        alpine) PLAT=alpine ;;
+      esac ;;
+  esac
+fi
+[ -z "$PLAT" ] && { echo "未识别的平台" >&2; exit 1; }
+
+SUDO=""
+[ "$PLAT" != termux ] && [ "$PLAT" != macos ] && [ "$(id -u)" -ne 0 ] && SUDO=sudo
+inst() {
+  case "$PLAT" in
+    termux) pkg install -y "$@" ;;
+    debian) $SUDO apt-get install -y "$@" ;;
+    arch) $SUDO pacman -S --needed --noconfirm "$@" ;;
+    dnf) $SUDO dnf install -y "$@" ;;
+    alpine) $SUDO apk add "$@" ;;
+    macos) brew install "$@" ;;
+  esac
+}
+case "$PLAT" in
+  termux) PKGS="python nodejs git curl libc++ python-numpy python-lxml python-pillow python-onnxruntime python-cryptography chromium ffmpeg yt-dlp" ;;
+  debian) PKGS="python3 python3-pip nodejs npm git curl python3-numpy python3-lxml python3-pil python3-cryptography chromium ffmpeg yt-dlp" ;;
+  arch) PKGS="python nodejs npm git curl python-numpy python-lxml python-pillow python-cryptography chromium ffmpeg yt-dlp" ;;
+  dnf) PKGS="python3 python3-pip nodejs npm git curl python3-numpy python3-lxml python3-pillow python3-cryptography chromium ffmpeg yt-dlp" ;;
+  alpine) PKGS="python3 py3-pip nodejs npm git curl py3-numpy py3-lxml py3-pillow py3-cryptography chromium ffmpeg yt-dlp" ;;
+  macos) PKGS="python3 node git curl ffmpeg yt-dlp" ;;
+esac
+
+echo "[1/4] 系统依赖 ($PLAT)"
+for p in $PKGS; do inst "$p" >/dev/null 2>&1 && ok "$p" || bad "$p"; done
+
+echo "[2/4] Python 依赖"
+PY="$(command -v python3 || command -v python || true)"
+if [ -z "$PY" ]; then
+  bad "python3"
+else
+  PF=""
+  [ -z "${TERMUX_VERSION:-}" ] && ls /usr/lib/python3*/EXTERNALLY-MANAGED >/dev/null 2>&1 && PF="--break-system-packages"
+  for i in "PIL|Pillow" "numpy|numpy" "lxml|lxml" "cryptography|cryptography" \
+           "markitdown|markitdown[docx,pdf,pptx]" "openpyxl|openpyxl" "xlrd|xlrd" \
+           "pptx|python-pptx" "mammoth|mammoth" "pdfplumber|pdfplumber" \
+           "selenium|selenium" "fpdf|fpdf2" "fontTools|fonttools"; do
+    m="${i%%|*}"; s="${i#*|}"
+    if "$PY" -c "import $m" >/dev/null 2>&1; then ok "$m"
+    elif "$PY" -m pip install --no-input -q $PF "$s" >/dev/null 2>&1; then ok "$s"
+    else bad "$s"; fi
+  done
+fi
+echo "[3/4] Node 依赖"
+mkdir -p "$SKILL"
+if command -v npm >/dev/null 2>&1; then
+  for d in docx pptxgenjs; do
+    if [ -d "$SKILL/node_modules/$d" ]; then ok "$d"
+    elif npm install --no-audit --no-fund --prefix "$SKILL" "$d" >/dev/null 2>&1; then ok "$d"
+    else bad "$d"; fi
+  done
+else
+  bad "npm"
 fi
 
-python3 -c 'import sys; from PIL import Image; sys.exit(0 if sys.version_info >= (3, 10) else 1)' || {
-    echo "[FAIL] 需要 Python 3.10+ 且 Pillow 可正常导入" >&2
-    exit 1
-}
-
-echo "Downloading (CDN first, GitHub fallback)..."
-mkdir -p "$DEST" "$APPS" "$CONFIG_DIR" "$MEMORY_DIR" "$SKILL_DIR"
-
+echo "[4/4] 程序与技能"
+mkdir -p "$DEST" "$APPS" "$CFG/memory" "$SKILL"
 dl() {
-    local file="$1" out="$2"
-    if curl -fsSL "$CDN_BASE/$file" -o "$out" 2>/dev/null; then
-        echo "  [CDN] $file"
-    elif curl -fsSL "$RAW_BASE/$file" -o "$out" 2>/dev/null; then
-        echo "  [RAW] $file"
-    else
-        echo "  [FAIL] $file (CDN 与 GitHub 均不可达，请检查网络)" >&2
-        return 1
-    fi
+  curl -fsSL "$CDN/$1" -o "$2" 2>/dev/null && return 0
+  curl -fsSL "$RAW/$1" -o "$2" 2>/dev/null && return 0
+  return 1
 }
+if dl cli-agent.py "$DEST/cli-agent.py"; then ok "cli-agent.py"; else bad "cli-agent.py"; fi
+if dl cli-agent.desktop "$APPS/cli-agent.desktop"; then ok "cli-agent.desktop"; else bad "cli-agent.desktop"; fi
+chmod +x "$DEST/cli-agent.py" 2>/dev/null
 
-dl cli-agent.py "$DEST/cli-agent.py"
-dl cli-agent.desktop "$APPS/cli-agent.desktop"
-chmod +x "$DEST/cli-agent.py" "$APPS/cli-agent.desktop"
-
-list_skills_api() {
-    curl -fsSL "$API_BASE/skills?ref=$BRANCH" 2>/dev/null | python3 -c '
+LIST=""
+if [ -n "$PY" ]; then
+  LIST="$(curl -fsSL "$API/skills?ref=$BRANCH" 2>/dev/null | "$PY" -c '
 import json, sys
 try:
     items = json.load(sys.stdin)
@@ -77,68 +107,41 @@ except Exception:
 if not isinstance(items, list):
     sys.exit(1)
 for f in items:
-    name = f.get("name") or ""
-    if f.get("type") == "file" and name and not name.startswith("."):
-        print(name)' 2>/dev/null
-}
-
-SKILL_LIST="$(list_skills_api || true)"
-if [ -z "$SKILL_LIST" ]; then
-    echo "  [INFO] GitHub API 不可达，改用 skills/.manifest 兜底清单" >&2
-    SKILL_LIST="$(curl -fsSL "$CDN_BASE/skills/.manifest" 2>/dev/null \
-        || curl -fsSL "$RAW_BASE/skills/.manifest" 2>/dev/null || true)"
-    SKILL_LIST="$(printf '%s\n' "$SKILL_LIST" | tr -d '\r' | grep -v '^[[:space:]]*$' || true)"
+    n = f.get("name") or ""
+    if f.get("type") == "file" and n and not n.startswith("."):
+        print(n)' 2>/dev/null)"
 fi
-
-if [ -n "$SKILL_LIST" ]; then
-    n=0
-    while IFS= read -r f; do
-        [ -n "$f" ] || continue
-        if dl "skills/$f" "$SKILL_DIR/$f"; then
-            case "$f" in *.sh) chmod +x "$SKILL_DIR/$f" ;; esac
-            n=$((n + 1))
-        else
-            echo "  [WARN] 技能 $f 下载失败，已跳过" >&2
-        fi
-    done <<SKILLS_EOF
-$SKILL_LIST
-SKILLS_EOF
-
-    if [ -f "$INSTALLED_REC" ]; then
-        while IFS= read -r old; do
-            case "$old" in ""|*/*|*..*) continue ;; esac
-            if ! printf '%s\n' "$SKILL_LIST" | grep -qxF "$old"; then
-                rm -f "$SKILL_DIR/$old" && echo "  [DEL] 仓库已移除：$old"
-            fi
-        done < "$INSTALLED_REC"
+[ -z "$LIST" ] && LIST="$(curl -fsSL "$CDN/skills/.manifest" 2>/dev/null || curl -fsSL "$RAW/skills/.manifest" 2>/dev/null)"
+if [ -n "$LIST" ]; then
+  n=0
+  for f in $LIST; do
+    if dl "skills/$f" "$SKILL/$f"; then
+      n=$((n+1))
+      case "$f" in *.sh) chmod +x "$SKILL/$f" ;; esac
     fi
-    printf '%s\n' "$SKILL_LIST" > "$INSTALLED_REC"
-    echo "  skills/ 原样复刻完成：$n 个文件 -> $SKILL_DIR"
+  done
+  if [ -f "$REC" ]; then
+    for o in $(cat "$REC"); do
+      case "$o" in ""|*/*|*..*) continue ;; esac
+      printf '%s\n' "$LIST" | grep -qxF "$o" || rm -f "$SKILL/$o"
+    done
+  fi
+  printf '%s\n' "$LIST" > "$REC"
+  ok "$n 个技能文件 -> $SKILL"
 else
-    echo "  [WARN] 取不到 skills/ 清单（API 与 .manifest 均不可达），本次跳过技能复刻" >&2
+  bad "技能清单（API 与 .manifest 均不可达）"
 fi
 
-
-if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
-    mkdir -p "$PREFIX/bin"
-    cat > "$PREFIX/bin/agent" <<EOF
-#!/data/data/com.termux/files/usr/bin/bash
-exec python3 "$DEST/cli-agent.py" "\$@"
-EOF
-    chmod +x "$PREFIX/bin/agent"
+if [ -n "${TERMUX_VERSION:-}" ]; then
+  mkdir -p "$PREFIX/bin"
+  printf '#!/data/data/com.termux/files/usr/bin/bash\nexec python3 "%s" "$@"\n' "$DEST/cli-agent.py" > "$PREFIX/bin/agent"
+  chmod +x "$PREFIX/bin/agent"
+  ok "命令 agent -> $PREFIX/bin/agent"
 fi
 
-if [ ! -f "$CONFIG_DIR/key.bin" ]; then
-    echo "First run will guide you to enter API Key (getpass, machine-bound encrypted)"
-    echo "Or run ahead: python3 $DEST/cli-agent.py and follow the prompts"
+echo
+if [ "$FAIL" = 1 ]; then
+  echo "有依赖未装成功，见上面 FAIL 行；其余功能可用"
+  exit 1
 fi
-
-echo ""
-echo "Installation complete!"
-if [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux"* ]]; then
-    echo "   Run in terminal: agent"
-else
-    echo "   Run in terminal: python3 $DEST/cli-agent.py"
-fi
-echo ""
-echo "   Tip: new terminal = new conversation; ask the agent to modify its own parameters if needed"
+echo "完成。Termux 直接跑 agent；其他平台 python3 $DEST/cli-agent.py"

@@ -14,6 +14,8 @@
 curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/cli-agent-plus-plus@main/install.sh | bash
 ```
 
+一条命令装齐：系统包（python/node/git/ffmpeg/chromium）→ Python 包 → Node 包 → 宿主与技能集。幂等，可重复执行。
+
 首次运行输入 DeepSeek API Key：
 - 加密落盘（`~/.config/cli-agent/key.bin`）
 
