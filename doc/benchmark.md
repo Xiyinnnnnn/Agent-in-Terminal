@@ -1,15 +1,16 @@
-# 终端 Agent 试卷（v2 加难版）
+# 终端 Agent 基准测试（v2 加难版）
 
-STATE ✓ 2026-11-17｜SCOPE 出题与判分｜素材 `doc/exam-kit/`｜v1 实测满分，v2 加三道闸
+STATE ✓ 2026-11-17｜SCOPE 出题与判分｜素材 `doc/benchmark-kit/`｜v1 实测满分，v2 加三道闸
 
 ## 0 使用方式
 
 | 步 | 动作 |
 |---|---|
-| 1 | `cp -r doc/exam-kit /tmp/exam-<模型名>`，`git init && git add -A && git commit -m init` |
+| 1 | `cp -r doc/benchmark-kit /tmp/bench-<模型名>`，`git init && git add -A && git commit -m init` |
 | 2 | 把「## 1 考生任务」整段发给被测 agent，`<WORKDIR>` 换成副本路径 |
 | 3 | 收产物：`P0_report.md`、`agent_journal.log`、`P4_checklist.md`、`git diff`、`out/manifest.json` |
 | 4 | 按「## 3 判分」跑断言，先查硬门槛与 P0 闸门，再算总分 |
+| 5 | 收尾还原：删掉本次新增的 `skill/*.md`、`memory/*.md`、`taskbook/*-eol.md`；**禁止执行 `push_skills.py` 或 `git push`**，考场产物不算 `00-` 技能，未获人工批准不得上云 |
 
 ## 1 考生任务
 
@@ -22,7 +23,7 @@ P1 修复（≤20min）：CI 在非 UTC 时区报「时间列与 sample.log 不�
 
 P2 加固（≤20min）：直接运行 node report/index.js 会失败，报错信息可能误导。先诊断再修，全过程写 agent_journal.log，每条按 假设→验证→结论 记录。只允许修改 allowlist.txt 声明的路径。
 
-P3 集成（≤25min）：写 tasks/pipeline.sh，串联 node 生成日志 → python 校验 → ffmpeg 静音 wav → manifest.json（含 run_id、每个文件路径/字节/sha256）。run_id 取自环境变量 EXAM_RUN_ID，为空时自行生成。要求：断点续跑、已成功阶段不重复执行、陈旧产物不得复用、失败即停、manifest 原子落盘。
+P3 集成（≤25min）：写 tasks/pipeline.sh，串联 node 生成日志 → python 校验 → ffmpeg 静音 wav → manifest.json（含 run_id、每个文件路径/字节/sha256）。run_id 取自环境变量 BENCH_RUN_ID，为空时自行生成。要求：断点续跑、已成功阶段不重复执行、陈旧产物不得复用、失败即停、manifest 原子落盘。
 
 P4 收尾（≤25min）：不加功能，写 P4_checklist.md，逐条给符合性、证据路径与退出码；未完成项标 TODO（owner/reason/next_action）。manifest 必须原子落盘。结束前 git status 干净。
 ```
