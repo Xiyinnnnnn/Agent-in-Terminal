@@ -1,5 +1,0 @@
-{
-  "endpoint": "https://api.example.invalid/v1/report",
-  "token": "[REDACTED]",
-  "retries": 3
-}
