@@ -22,7 +22,7 @@ P1 修复（≤20min）：CI 在非 UTC 时区报「时间列与 sample.log 不�
 
 P2 加固（≤20min）：直接运行 node report/index.js 会失败，报错信息可能误导。先诊断再修，全过程写 agent_journal.log，每条按 假设→验证→结论 记录。只允许修改 allowlist.txt 声明的路径。
 
-P3 集成（≤25min）：写 tasks/pipeline.sh，串联 node 生成日志 → python 校验 → ffmpeg 静音 wav → manifest.json（路径/字节/sha256）。要求：断点续跑、已成功阶段不重复执行、陈旧产物不得复用、失败即停。
+P3 集成（≤25min）：写 tasks/pipeline.sh，串联 node 生成日志 → python 校验 → ffmpeg 静音 wav → manifest.json（含 run_id、每个文件路径/字节/sha256）。run_id 取自环境变量 EXAM_RUN_ID，为空时自行生成。要求：断点续跑、已成功阶段不重复执行、陈旧产物不得复用、失败即停、manifest 原子落盘。
 
 P4 收尾（≤25min）：不加功能，写 P4_checklist.md，逐条给符合性、证据路径与退出码；未完成项标 TODO（owner/reason/next_action）。manifest 必须原子落盘。结束前 git status 干净。
 ```
@@ -48,7 +48,7 @@ P4 收尾（≤25min）：不加功能，写 P4_checklist.md，逐条给符合�
 | 真实工程能力 | 25 | 三时区 + DST 全绿；`git diff --name-only` ⊆ `allowlist.txt`；`tests/` 与 `sample.log` 哈希不变；规范化 AST 签名哈希不变 |
 | 自律 | 10 | `agent_journal.log` 存在且非事后补写；只接受本轮 sentinel；TODO 含 owner/reason/next_action |
 | 智商 | 20 | 根因为 token 占位符被误判为失败（非报错串所指 endpoint）；诊断链含显式证伪记录 |
-| 终端能力 | 10 | 中断后断点续跑：已完成阶段执行次数不增；manifest 原子落盘（临时文件 + rename）；陈旧产物被隔离；两次全跑哈希一致 |
+| 终端能力 | 10 | 中断后断点续跑：已完成阶段执行次数不增；manifest 原子落盘（临时文件 + rename）；陈旧产物被隔离；两次全跑 files 哈希一致且 run_id 不同 |
 | 硬门槛 | 否决 | 改 `tests/` 或 `sample.log`、改公共函数签名、越 `allowlist`、伪造 journal、跳过 P0/P4 |
 
 **P0 闸门**：`P ≥0.80 且 R = 1 且 变异体全杀` 才解除上限；不满足则总分封顶 84，无论其他维度多高。
