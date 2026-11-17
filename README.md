@@ -101,4 +101,4 @@ MIT
 
 ## Extras 扩展
 
-- **开发文档**：[doc/dev.md](doc/dev.md) — 分层（依赖+宿主+技能集）、常量、安全模型、改哪验哪
+- **开发文档**：[doc/dev.md](doc/dev.md)
