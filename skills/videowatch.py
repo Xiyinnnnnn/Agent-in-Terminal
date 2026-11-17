@@ -127,7 +127,183 @@ def inject(items, header, wake, pid):
     emit({"ev": "inject_err", "rc": r.returncode, "stderr": (r.stderr or "").strip()[:400]})
     return 1
 
+SUBEXT = (".vtt", ".srt", ".ass", ".ssa")
+DEF_LANGS = "zh-Hans,zh-CN,zh,en"
+EXIT_NO_SUBS = 6
+
+
+def ts2s(v):
+    m = re.search(r"(?:(\d+):)?(\d{1,2}):(\d{1,2})[.,](\d{1,3})", v)
+    if not m:
+        return None
+    h, mi, se, ms = m.groups()
+    return int(h or 0) * 3600 + int(mi) * 60 + int(se) + int(ms.ljust(3, "0")) / 1000.0
+
+
+def fmt_ts(s):
+    s = int(s or 0)
+    if s < 3600:
+        return "%02d:%02d" % (s // 60, s % 60)
+    return "%d:%02d:%02d" % (s // 3600, s // 60 % 60, s % 60)
+
+
+ENT = {"&nbsp;": " ", "&amp;": "&", "&lt;": "<", "&gt;": ">", "&quot;": '"', "&#39;": "'"}
+
+
+def clean_line(l):
+    l = re.sub(r"<[^>]*>", "", l)
+    l = re.sub(r"\{\\[^}]*\}", "", l)
+    for k, v in ENT.items():
+        l = l.replace(k, v)
+    return re.sub(r"\s+", " ", l).strip()
+
+
+def parse_timed(txt):
+    txt = txt.replace("\r\n", "\n").replace("\r", "\n")
+    cues = []
+    for block in re.split(r"\n\s*\n", txt):
+        lines = [x for x in block.split("\n") if x.strip()]
+        i = next((k for k, x in enumerate(lines) if "-->" in x), None)
+        if i is None:
+            continue
+        head, _, tail = lines[i].partition("-->")
+        st, en = ts2s(head), ts2s(tail)
+        if st is None:
+            continue
+        body = [clean_line(x) for x in lines[i + 1:]]
+        body = [x for x in body if x]
+        if not body:
+            continue
+        cues.append([st, st if en is None else en, " ".join(body)])
+    return cues
+
+
+def dedupe(cues):
+    out = []
+    for st, en, text in cues:
+        if out and st == out[-1][0]:
+            if len(text) > len(out[-1][2]):
+                out[-1][2] = text
+            out[-1][1] = max(out[-1][1], en)
+            continue
+        if out:
+            pt = out[-1][2]
+            if text == pt or text in pt:
+                continue
+            if pt in text:
+                out.pop()
+        out.append([st, en, text])
+    return out
+
+
+def safe(n):
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", n).strip("_") or "und"
+
+
+def write_md(out, name, lang, kind, cues):
+    end = max([c[1] for c in cues] or [0])
+    hdr = ["# 字幕 %s" % name, "",
+           "| 项 | 值 |", "| --- | --- |",
+           "| 语言 | %s |" % (lang or "?"),
+           "| 类型 | %s |" % kind,
+           "| 时长 | %s |" % fmt_ts(end),
+           "| 行数 | %d |" % len(cues), ""]
+    body = ["[%s] %s" % (fmt_ts(st), t.replace("|", "\\|")) for st, _, t in cues]
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text("\n".join(hdr + body) + "\n", encoding="utf-8")
+    return body
+
+
+def subs_local(vid, outdir):
+    need("ffprobe", "pkg install ffmpeg")
+    outdir.mkdir(parents=True, exist_ok=True)
+    j = json.loads(sh(["ffprobe", "-v", "error", "-select_streams", "s",
+                       "-show_entries", "stream=index:stream_tags=language",
+                       "-of", "json", str(vid)]))
+    got = []
+    streams = j.get("streams") or []
+    for k, st in enumerate(streams):
+        lang = ((st.get("tags") or {}).get("language") or "").strip()
+        if not lang or lang == "und":
+            lang = "und" if len(streams) == 1 else "und%d" % k
+        need("ffmpeg", "pkg install ffmpeg")
+        dst = outdir / (safe(lang) + ".srt")
+        sh(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(vid),
+            "-map", "0:s:%d" % k, "-c:s", "srt", str(dst)])
+        got.append((lang, dst, "embedded"))
+    for p in sorted(vid.parent.glob(vid.stem + ".*")):
+        if p.suffix.lower() not in SUBEXT or not p.is_file():
+            continue
+        lang = p.name[len(vid.stem) + 1: -len(p.suffix)] or "und"
+        if p.suffix.lower() in (".ass", ".ssa"):
+            need("ffmpeg", "pkg install ffmpeg")
+            dst = outdir / (safe(lang) + ".srt")
+            sh(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(p), str(dst)])
+        else:
+            dst = outdir / (safe(lang) + p.suffix.lower())
+            shutil.copyfile(p, dst)
+        got.append((lang, dst, "external." + p.suffix.lower()[1:]))
+    return got
+
+
+def subs_url(url, d, langs):
+    need("yt-dlp", "pip install yt-dlp")
+    sd = d / "subs_raw"
+    sd.mkdir(parents=True, exist_ok=True)
+    for f in sd.iterdir():
+        if f.is_file():
+            f.unlink()
+    cmd = ["yt-dlp", "--skip-download", "--write-subs", "--write-auto-subs",
+           "--sub-langs", langs, "--sub-format", "vtt/srt/best",
+           "--no-playlist", "-o", str(sd / "src.%(ext)s"), url]
+    r = subprocess.run(cmd, capture_output=True, text=True)
+    log = (r.stdout or "") + (r.stderr or "")
+    files = [p for p in sd.iterdir() if p.suffix.lower() in (".vtt", ".srt")]
+    if not files:
+        emit({"ev": "no_subs", "src": url, "log": log.strip()[-200:]})
+        sys.exit(EXIT_NO_SUBS)
+    kind = "manual" if "Writing video subtitles" in log else (
+        "auto" if "automatic captions" in log else "?")
+    return [(p.name[len("src."):-len(p.suffix)], p, kind) for p in sorted(files)]
+
+
+def subs_main(argv):
+    ap = argparse.ArgumentParser(prog="videowatch subs")
+    ap.add_argument("src", help="本地视频路径 或 http(s) 链接")
+    ap.add_argument("--langs", default=DEF_LANGS, help="yt-dlp --sub-langs，默认 " + DEF_LANGS)
+    ap.add_argument("--quiet", action="store_true")
+    a = ap.parse_args(argv)
+    if URL.match(a.src):
+        d = wdir(a.src)
+        found = subs_url(a.src, d, a.langs)
+    else:
+        vid = Path(a.src).expanduser()
+        if not vid.is_file():
+            die("no_such_file:%s" % a.src)
+        d = wdir(str(vid.resolve()))
+        found = subs_local(vid, d / "subs")
+        if not found:
+            emit({"ev": "no_subs", "src": str(vid)})
+            sys.exit(EXIT_NO_SUBS)
+    n = 0
+    for lang, p, kind in found:
+        cues = dedupe(parse_timed(p.read_text(encoding="utf-8", errors="replace")))
+        if not cues:
+            continue
+        md = d / "subs" / (safe(lang) + ".md")
+        body = write_md(md, Path(a.src).name, lang, kind, cues)
+        emit({"ev": "subs", "path": str(md), "lang": lang, "kind": kind,
+              "lines": len(cues), "sec": round(cues[-1][1], 1), "head": body[:6]})
+        n += 1
+    if n == 0:
+        emit({"ev": "no_subs", "src": a.src, "raw": len(found)})
+        sys.exit(EXIT_NO_SUBS)
+    emit({"ev": "subs_done", "n": n, "dir": str(d / "subs")})
+    return 0
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "subs":
+        return subs_main(sys.argv[2:])
     ap = argparse.ArgumentParser(prog="videowatch")
     ap.add_argument("src", help="本地视频路径 或 http(s) 链接")
     ap.add_argument("--thr", type=float, default=6.0, help="灰度均差阈值 0-255，默认 6")

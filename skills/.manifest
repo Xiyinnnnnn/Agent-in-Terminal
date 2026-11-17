@@ -1,10 +1,12 @@
 00-subagent-启动等待与授权回传.md
 00-token消耗查询.md
+00-写文档.md
 00-图形界面操作-Android.md
 00-图形界面操作-Linux.md
 00-文档规范.md
 00-无头浏览器-Selenium截图抓取.md
 00-疑难升级-大模型一次性诊断.md
+00-看文档.md
 00-看视频-抽帧注入上下文.md
 00-索引.md
 00-联网搜索.md
@@ -16,6 +18,11 @@ ctxinject.py
 escalate.py
 hl.py
 lin_ui.py
+md2docx.mjs
+md2md.py
+md2pdf.py
+md2pptx.mjs
+md2xlsx.py
 search.py
 subagent.py
 taskwatch.py
