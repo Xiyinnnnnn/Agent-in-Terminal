@@ -144,10 +144,14 @@ def shot(out=None, dev=None, long=None):
     dev = dev or (ADB if ADB in ds else ds[0])
     p = Path(out).expanduser() if out else BASE / ("shot_%s.png" % time.strftime("%Y%m%d-%H%M%S"))
     p.parent.mkdir(parents=True, exist_ok=True)
-    sys.path.insert(0, str(Path.home() / ".local/bin/cli-agent"))
     z = None
     try:
-        from cli-agent import _shrink_raw
+        import importlib.util as _ilu
+        _hp = Path.home() / ".local/bin/cli-agent/cli-agent.py"
+        _spec = _ilu.spec_from_file_location("cli_agent_host", _hp)
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        _shrink_raw = _mod._shrink_raw
         b = subprocess.run(["adb", "-s", dev, "exec-out", "screencap"], capture_output=True, timeout=90).stdout
         z = _shrink_raw(b, long) if len(b) >= 16 else None
     except Exception as e:

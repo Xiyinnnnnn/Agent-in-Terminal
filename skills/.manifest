@@ -18,6 +18,7 @@
 ctxinject.py
 escalate.py
 hl.py
+install-deps.sh
 lin_ui.py
 md2docx.mjs
 md2md.py
