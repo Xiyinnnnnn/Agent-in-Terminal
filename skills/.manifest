@@ -3,6 +3,7 @@
 00-写文档.md
 00-图形界面操作-Android.md
 00-图形界面操作-Linux.md
+00-工作交接-执行轨迹.md
 00-文档规范.md
 00-无头浏览器-Selenium截图抓取.md
 00-疑难杂症-强模型诊断.md
@@ -27,5 +28,6 @@ search.py
 subagent.py
 taskwatch.py
 token.mjs
+trace.py
 uitree.py
 videowatch.py
