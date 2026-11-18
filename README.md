@@ -17,7 +17,7 @@ curl -fsSL https://cdn.jsdelivr.net/gh/Xiyinnnnnn/cli-agent-plus-plus@main/insta
 快速安装:依赖+本体+技能集
 
 首次运行输入 DeepSeek API Key：
-- 加密落盘（`~/.config/cli-agent/key.bin`）
+- 混淆落盘（`~/.config/cli-agent/key.bin`）
 
 ## USAGE
 
