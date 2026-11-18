@@ -1,0 +1,7 @@
+[
+  { "seq": 1, "ts": 1767323045000, "level": "INFO", "msg": "boot" },
+  { "seq": 2, "ts": 1767323045000, "level": "INFO", "msg": "a|b" },
+  { "seq": 3, "ts": 1767323045000, "level": "WARN", "msg": "clock skew 0ms" },
+  { "seq": 4, "ts": 1767323045000, "level": "WARN", "msg": "clock skew 0ms" },
+  { "seq": 5, "ts": 1782864000000, "level": "ERROR", "msg": "upstream 502" }
+]

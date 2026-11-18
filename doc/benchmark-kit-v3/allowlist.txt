@@ -1,4 +1,0 @@
-report/report.js
-report/index.js
-report/logger.js
-tasks/pipeline.sh
