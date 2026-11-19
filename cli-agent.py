@@ -1,4 +1,4 @@
-import json, os, signal, subprocess, sys, time, urllib.request, base64, hashlib, zlib, struct, io
+import select, json, os, signal, subprocess, sys, time, urllib.request, base64, hashlib, zlib, struct, io
 import readline
 try:
     from PIL import Image as _PIL
@@ -554,7 +554,9 @@ def _read_input():
         @kb.add("enter")
         def _enter(event):
             b = event.current_buffer
-            if not b.document.current_line.replace("\x18", "").strip():
+            if not b.document.current_line.replace("\x18", "").strip() and not (
+                    event.key_processor.input_queue
+                    or select.select([sys.stdin.fileno()], [], [], 0.02)[0]):
                 b.validate_and_handle()
             else:
                 b.insert_text("\n")
