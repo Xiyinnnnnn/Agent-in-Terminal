@@ -113,36 +113,23 @@ TOOL_ALIASES = ["run", "terminal", "shell", "bash", "exec", "cmd"]
 AUTH_TIMEOUT = 30
 
 def input_yn(prompt, timeout):
-    if not (timeout > 0 and sys.stdin.isatty()):
+    if not sys.stdin.isatty():
         return input(prompt).strip()
-    import select, termios, tty, codecs
-    print(prompt, end="", flush=True)
-    fd = sys.stdin.fileno()
-    old = termios.tcgetattr(fd)
-    dec = codecs.getincrementaldecoder("utf-8")("ignore")
-    line = ""
+    import asyncio
+    from prompt_toolkit import prompt as _pt, ANSI
+    from prompt_toolkit.application import get_app
+    h = []
+    def _arm():
+        a = get_app()
+        h.append(asyncio.get_running_loop().call_later(timeout, lambda: a.exit(result=None)))
     try:
-        tty.setcbreak(fd)
-        while True:
-            r, _, _ = select.select([sys.stdin], [], [], timeout)
-            if not r:
-                print()
-                return None
-            ch = os.read(fd, 1)
-            if not ch:
-                return None
-            if ch in (b"\n", b"\r"):
-                print(); return line.strip()
-            if ch in (b"\x7f", b"\x08"):
-                if line:
-                    line = line[:-1]; print("\b \b", end="", flush=True)
-                continue
-            c = dec.decode(ch)
-            if c:
-                line += c
-                print(c, end="", flush=True)
+        r = _pt(ANSI(prompt), pre_run=_arm if timeout > 0 else None)
     finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        for t in h: t.cancel()
+    if r is None:
+        print()
+        return None
+    return r.strip()
 
 def confirm_block(cmd):
     try:
@@ -564,6 +551,10 @@ def _read_input():
         @kb.add("c-x")
         def _cx(event):
             event.current_buffer.insert_text("\x18")
+
+        @kb.add("tab")
+        def _tab(event):
+            event.current_buffer.insert_text("\t")
 
         _pt_session = PromptSession(multiline=True, key_bindings=kb,
                                     prompt_continuation="... ")
