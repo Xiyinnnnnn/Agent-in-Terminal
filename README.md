@@ -2,7 +2,7 @@
 
 ![license](https://img.shields.io/badge/license-MIT-1e90ff?style=flat-square)
 ![python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square)
-![deps](https://img.shields.io/badge/dependencies-Pillow-2ea44f?style=flat-square)
+![deps](https://img.shields.io/badge/dependencies-Pillow%20%7C%20prompt__toolkit-2ea44f?style=flat-square)
 ![deps](https://img.shields.io/badge/skill%20deps-node%20%7C%20ffmpeg%20%7C%20chromium%20%7C%20yt--dl-2ea44f?style=flat-square)
 ![platform](https://img.shields.io/badge/platform-linux%20%7C%20termux-f59e0b?style=flat-square)
 
