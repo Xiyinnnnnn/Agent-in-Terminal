@@ -30,7 +30,7 @@ STATE ✓ 2026-11-17｜SCOPE 单文件宿主 `cli-agent.py`：对话循环、压
 | 仓库内 | `cli-agent.py`（根目录） |
 | 安装后 | `~/.local/bin/cli-agent/cli-agent.py` |
 | 数据根 | `~/.config/cli-agent/`：`key.bin` + `memory/` `skill/` `taskbook/` |
-| 依赖 | Python 3.10+、Pillow；系统包与 pip/npm 由 `install.sh` 装 |
+| 依赖 | Python 3.10+、Pillow、prompt_toolkit、rich（可选，缺失退回原样打印）；系统包与 pip/npm 由 `install.sh` 装 |
 
 ## 常量
 
@@ -43,7 +43,7 @@ STATE ✓ 2026-11-17｜SCOPE 单文件宿主 `cli-agent.py`：对话循环、压
 | MAX_READ | 30000 | 工具结果回读截断，超出追加 `[已省略 N 字符]` |
 | MAX_CMD | 6000 | 单条命令字符上限，超出不执行 |
 | REASONING_EFFORT | high | 请求体 `reasoning_effort` |
-| AUTH_TIMEOUT | 30 | 授权等待秒数；≤0 退回阻塞 `input()` |
+| AUTH_TIMEOUT | 30 | 授权等待秒数；≤0 不设超时（非 tty 仍用 `input()`） |
 
 ## 主循环
 
@@ -96,6 +96,7 @@ while True:
 |---|---|
 | main | 交互循环、压缩调度、工具回填 |
 | llm | OpenAI 兼容流式请求；`select` 轮询 stdin 支持中断 |
+| _md_feed / _md_flush | 流式正文按空行切块，围栏内不切；整块交 `rich` 渲染，缺 rich 或渲染异常退回原样打印；公式不处理，靠 `SYSTEM` 的 `[MUST] 公式→Unicode` |
 | build_context | `SYSTEM` + 快照链 + `mem_hist` |
 | compress | 历史 → 新快照（append-only） |
 | sanitize_hist | 丢弃 tool_calls 与 tool 回填不配对的消息段 |
@@ -118,6 +119,7 @@ while True:
 | 判定权 | 只动 `SYSTEM` 的 `[SAFETY]` 段与 `TOOLS` 的 `dangerous` 描述 |
 | 压缩 | `compress` / `build_context` / `main` 压缩段，三处联动 |
 | 图片 | `_img` 系列 |
+| 输出渲染 | `_md_feed` / `_md_flush`；思维链不渲染，`mem_hist` 里仍存原始 markdown |
 
 ```bash
 python3 -m py_compile cli-agent.py
@@ -148,3 +150,4 @@ PY
 | 未闭合引号导致主循环退出 | `shlex.split` 抛 `ValueError` | `q=_img(q)` 的 try/except 按纯文本处理 |
 | 压缩后图片丢失 | 快照只存文本 | 图片原文只保留在 `mem_hist` 未压缩段 |
 | 上下文明显超长却不压缩 | 只看 `usage` 字段，不数字符 | 依赖 API 返回 usage |
+| 粘贴含空行的文本自动执行；粘贴内容里的 Tab 丢失 | 终端不发括号粘贴标记（输入法剪贴板、部分终端、tmux/ssh）时，换行是普通按键，空行回车触发执行；没配补全器时 Tab 不插入 | `_enter` 内检查 `input_queue` 与 stdin 20ms 内是否还有数据，有则当换行；单独绑定 Tab 插入 `\t` |
