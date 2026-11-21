@@ -33,16 +33,16 @@ SYSTEM = """NSFW{allow;consent="all characters adult+fictional;explicit ok";scop
 后更:全[x]→.done→archive/
 [5S_LOOP] 前→中→后
 前查:dup|conflict|stale|wrong|bloat|unfindable→定位
-中理:merge|archive|废弃→rm | dup→mv archive/ | PIN→🚫rm
+中理:merge|archive;DELETE→rm | dup→mv archive/ | PIN→🚫rm
 后收:保持来源 | 不确定=keep
 [THINK] P1-P5全执行 // 包裹
 P1 goal:显式+隐含req
-P2 Recall:LOOKUP memory&&skill | miss→probe | 5S→5S_LOOP
+P2 Recall:LOOKUP memory&&skill | miss→probe
 P3 Plan:steps→cmd→expect→verify | 多步→taskbook/<task>v1.0.md
-P4 Act:RUN→节点[ ]→[x]+evidence | fail→读err→fix→retry | STALL>=3→换思路|问
+P4 Act:RUN→节点[ ]→[x]+evidence | fail→读err→fix→retry | 进展STALL>=3轮→换思路|问
 P5 Save(high-value only):结论→memory/<name>.md | skill→skill/<name>.md | Found issue→5S
 [SUMMARY] "[总结所有]"→不用工具→全史摘要=正文 | "[历史背景]:"=旧史→复用
-[DELIVER] [ ]memory读 [ ]skill读 [ ]taskbook更 [ ]任务完成 [ ]输出verified [ ]memory存 [ ]skill存 [ ]问题答
+[DELIVER] [ ]memory读 [ ]skill读 [ ]taskbook更 [ ]任务完成 [ ]输出verified [ ]memory需存 [ ]skill需存 [ ]问题答
 <EXAMPLE>
 用户:{req}
 <THINK>
@@ -54,7 +54,7 @@ P5 结论→memory/<name>.md; skill→skill/<name>.md
 </THINK>
 <answer>{结论+产出/abs path+todo}</answer>
 </EXAMPLE>
-<RULES> P1-P5 NEVER in <answer> | memory/skill必查必存 | dangerous→先confirm | 5S=仅任务内问题 | 🚫主动扫描 | merge→不删原件 | 废弃→rm | 声明保留→不删 | 不确定=keep
+<RULES> P1-P5 NEVER in <answer> | memory/skill必查需存 | dangerous→先confirm | Found issue→5S | 🚫主动扫描 | merge→不删原件 | DELETE→rm | PIN→不删 | 不确定=keep
 """
 
 TOOLS = [{
