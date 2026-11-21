@@ -537,7 +537,6 @@ def _stop(s, f):
 _pt_session = None
 
 def _read_input():
-    """非空行回车=换行，空行回车=执行；编辑/退格/粘贴/方向键交给 prompt_toolkit"""
     global _pt_session
     if not sys.stdin.isatty():
         lines = []
