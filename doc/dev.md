@@ -1,6 +1,6 @@
 # 宿主开发
 
-STATE ✓ 2026-11-17｜SCOPE 单文件宿主 `cli-agent.py`：对话循环、压缩、授权闸门、图片编码；技能集见 `README` 与 `skills/`
+STATE ✓ 2026-11-21｜SCOPE 单文件宿主 `cli-agent.py`：对话循环、压缩、授权闸门、图片编码；技能集见 `README` 与 `skills/`
 
 ## 分层
 
@@ -45,6 +45,31 @@ STATE ✓ 2026-11-17｜SCOPE 单文件宿主 `cli-agent.py`：对话循环、压
 | REASONING_EFFORT | high | 请求体 `reasoning_effort` |
 | AUTH_TIMEOUT | 30 | 授权等待秒数；≤0 不设超时（非 tty 仍用 `input()`） |
 
+## 提示词符号语义
+
+`SYSTEM` 用符号压缩；改提示词先查表，不新增未声明符号。
+
+| 符号 | 语义 | 例 |
+|---|---|---|
+| → | 流程 / 转换 | `THINK→RUN→验`、`结论→memory/<name>.md` |
+| \| | 或 | `删除\|覆盖\|格式化`、`df\|du\|ls\|cat` |
+| > | 优先 | `tool>text`、`查>猜`、`当前指令>taskbook>skill>memory>历史` |
+| && | 且 | `cmd&&answer=abs path`、`LOOKUP memory&&skill` |
+| = | 定义 | `root=~/.config/cli-agent/`、`hit=reuse+cite` |
+| ≠ | 不等 | `draft≠deliver` |
+| <x> | 占位符 | `<name>`、`<task>`、`<script>` |
+| [ ] / [x] | 清单 | `节点[ ]→[x]+evidence` |
+| // | 注释 | `[THINK] P1-P5全执行 // 包裹` |
+| ! | 禁止 | `!跳过`、`!目测`、`!编造`、`!cat`、`!rm`、`!主动扫描`、`!删原件` |
+
+| 约束 | 值 |
+|---|---|
+| 声明 | 全部符号在 `[SYM]` 一行声明；`;` 分隔、符号加括号，避免 `\|` 自指 |
+| 并列 | 并列用逗号（`dirs=memory/,skill/,taskbook/`）；`\|` 只表"或" |
+| 动作 vs 状态 | 危险动作写 `RUN(dangerous=true)`；只写 `dangerous=true` 模型会"先问不发 RUN"（实测 0/3 vs 2/3） |
+| 压缩 | 2498 → 2217 字符（-11.2%）、60 → 48 行；50 个语义 token 全覆盖 |
+| 不压 | `[SYM]` 行、LOOP 的 `前/中/后`、`[DELIVER]` 8 项、`NEVER overwrite whole file`、7 行 `<EXAMPLE>` |
+
 ## 主循环
 
 ```python
@@ -60,13 +85,32 @@ while True:
         break
 ```
 
+## 空响应重试
+
+| 项 | 值 |
+|---|---|
+| 触发 | `content` 与 `tool_calls` 皆空（只回了 `reasoning_content`） |
+| 处置 | 丢弃本次产出（不写 `mem_hist`）→ 用当前历史重发 |
+| 上限 | 重发 3 次；第 4 次仍空 `break`，回到等输入 |
+| 间隔 | 1s |
+| 日志 | 静默，无提示 |
+| 计数 | `empty` 每轮用户输入重置；与 `retry`（网络失败 / 截断，阈值 10）独立 |
+
+| 边界实测 | 结果 |
+|---|---|
+| 空 1 次 | 重发 1 次成功 |
+| 空 3 次 | 第 4 次成功 |
+| 空 10 次 | 实际只调 4 次（原始 1 + 重发 3）后 `break` |
+
+坑：日志里有无 `[正文]` 取决于该次响应是否带 `reasoning_content`；没有 `[正文]` ≠ 没回答。
+
 ## 压缩
 
 | 项 | 值 |
 |---|---|
 | 触发 | `usage > MAX_TOK`，或连续 10 次 API 失败，或 `Ctrl+X` |
 | 切点 | 最后一个 user 消息之前；其后的历史保留 |
-| 产物 | `"历史背景：" + 新快照`，append 到 `summaries`，旧快照不可变 |
+| 产物 | `"[历史背景]:" + 新快照`，append 到 `summaries`，旧快照不可变 |
 | 请求 | 复用完整前缀（最大化 KV 命中）、非流式、`think=False`、`max_tokens=MAX_OUT//4` |
 
 ## 安全
